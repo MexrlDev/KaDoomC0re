@@ -25,6 +25,7 @@ jobs:
           libtool \
           pkg-config \
           libsdl2-dev \
+          libsdl2-mixer-dev \
           gcc-x86-64-linux-gnu \
           binutils-x86-64-linux-gnu
         # Create x86_64-elf-* symlinks
@@ -36,21 +37,18 @@ jobs:
       run: |
         git clone https://github.com/chocolate-doom/chocolate-doom.git third_party/chocolate-doom
         cd third_party/chocolate-doom
-        # Run autogen and configure, but skip SDL2 since we're replacing the system interface
         ./autogen.sh
         ./configure --prefix=/usr --disable-shared --enable-static --without-sdl2 --without-sdl-mixer
-        # Generate config.h
         make config.h
-        # Remove other game engines to reduce build time
         rm -rf src/heretic src/hexen src/strife
 
     - name: Create project source files
       run: |
         mkdir -p src tools lua
 
-    - name: Write all source files (core, hijack, audio, input, ui, ftp_server, i_ps, doom_engine, doom_main)
+    - name: Write all source files
       run: |
-        # Write core.h
+        # core.h
         cat > src/core.h << 'EOF'
         /* core.h - Common types and helpers */
         #ifndef CORE_H
@@ -112,7 +110,7 @@ jobs:
         #endif
         EOF
 
-        # Write hijack.h
+        # hijack.h
         cat > src/hijack.h << 'EOF'
         #ifndef HIJACK_H
         #define HIJACK_H
@@ -131,7 +129,7 @@ jobs:
         #endif
         EOF
 
-        # Write hijack.c
+        # hijack.c
         cat > src/hijack.c << 'EOF'
         #include "hijack.h"
         int video_hijack(struct video_ctx *v, void *G, void *D, u64 eboot_base, struct ext_args *ext) {
@@ -225,7 +223,7 @@ jobs:
         }
         EOF
 
-        # Write audio.h
+        # audio.h
         cat > src/audio.h << 'EOF'
         #ifndef AUDIO_H
         #define AUDIO_H
@@ -245,7 +243,7 @@ jobs:
         #endif
         EOF
 
-        # Write audio.c
+        # audio.c
         cat > src/audio.c << 'EOF'
         #include "audio.h"
         int audio_init(struct audio_ctx *a, void *G, void *D) {
@@ -287,7 +285,7 @@ jobs:
         }
         EOF
 
-        # Write input.h
+        # input.h
         cat > src/input.h << 'EOF'
         #ifndef INPUT_H
         #define INPUT_H
@@ -319,7 +317,7 @@ jobs:
         #endif
         EOF
 
-        # Write input.c
+        # input.c
         cat > src/input.c << 'EOF'
         #include "input.h"
         static u32 ds4_to_doom(u32 ds4_buttons) {
@@ -386,7 +384,7 @@ jobs:
         }
         EOF
 
-        # Write ui.h
+        # ui.h
         cat > src/ui.h << 'EOF'
         #ifndef UI_H
         #define UI_H
@@ -399,7 +397,7 @@ jobs:
         #endif
         EOF
 
-        # Write ui.c
+        # ui.c (with full font)
         cat > src/ui.c << 'EOF'
         #include "ui.h"
         static const u8 font_data[59][8] = {
@@ -513,7 +511,7 @@ jobs:
         }
         EOF
 
-        # Write ftp_server.h
+        # ftp_server.h
         cat > src/ftp_server.h << 'EOF'
         #ifndef FTP_SERVER_H
         #define FTP_SERVER_H
@@ -529,7 +527,7 @@ jobs:
         #endif
         EOF
 
-        # Write ftp_server.c
+        # ftp_server.c
         cat > src/ftp_server.c << 'EOF'
         #include "ftp_server.h"
         #include <string.h>
@@ -550,7 +548,7 @@ jobs:
         }
         EOF
 
-        # Write i_ps.h
+        # i_ps.h
         cat > src/i_ps.h << 'EOF'
         #ifndef I_PS_H
         #define I_PS_H
@@ -572,7 +570,7 @@ jobs:
         #endif
         EOF
 
-        # Write i_ps.c
+        # i_ps.c
         cat > src/i_ps.c << 'EOF'
         #include "i_ps.h"
         #include "ui.h"
@@ -629,7 +627,7 @@ jobs:
         }
         EOF
 
-        # Write doom_engine.h
+        # doom_engine.h
         cat > src/doom_engine.h << 'EOF'
         #ifndef DOOM_ENGINE_H
         #define DOOM_ENGINE_H
@@ -652,7 +650,7 @@ jobs:
         #endif
         EOF
 
-        # Write doom_engine.c
+        # doom_engine.c
         cat > src/doom_engine.c << 'EOF'
         #include "doom_engine.h"
         #include "i_ps.h"
@@ -672,7 +670,7 @@ jobs:
         }
         EOF
 
-        # Write doom_main.c
+        # doom_main.c
         cat > src/doom_main.c << 'EOF'
         #include "core.h"
         #include "hijack.h"
@@ -782,7 +780,7 @@ jobs:
         }
         EOF
 
-    - name: Write Makefile (corrected with config.h path)
+    - name: Write Makefile
       run: |
         cat > Makefile << 'EOF'
         CC = x86_64-elf-gcc
