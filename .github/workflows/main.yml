@@ -1,4 +1,4 @@
-name: Build DoomC0re
+name: Build Example C0re
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install build dependencies
+    - name: Install build tools
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -20,6 +20,10 @@ jobs:
           make \
           python3 \
           xxd \
+          autoconf \
+          automake \
+          libtool \
+          pkg-config \
           gcc-x86-64-linux-gnu \
           binutils-x86-64-linux-gnu
         # Create x86_64-elf-* symlinks
@@ -27,13 +31,16 @@ jobs:
         sudo ln -sf /usr/bin/x86_64-linux-gnu-ld /usr/local/bin/x86_64-elf-ld
         sudo ln -sf /usr/bin/x86_64-linux-gnu-objcopy /usr/local/bin/x86_64-elf-objcopy
 
-    - name: Clone Chocolate Doom
+    - name: Clone and configure Chocolate Doom
       run: |
         git clone https://github.com/chocolate-doom/chocolate-doom.git third_party/chocolate-doom
+        cd third_party/chocolate-doom
+        ./autogen.sh
+        ./configure --prefix=/usr --disable-shared --enable-static
+        # Generate config.h (this is what was missing)
+        make config.h
         # Remove other game engines to reduce build time
-        rm -rf third_party/chocolate-doom/src/heretic
-        rm -rf third_party/chocolate-doom/src/hexen
-        rm -rf third_party/chocolate-doom/src/strife
+        rm -rf src/heretic src/hexen src/strife
 
     - name: Create project source files
       run: |
@@ -122,7 +129,7 @@ jobs:
         #endif
         EOF
 
-        # Write hijack.c (full)
+        # Write hijack.c
         cat > src/hijack.c << 'EOF'
         #include "hijack.h"
         int video_hijack(struct video_ctx *v, void *G, void *D, u64 eboot_base, struct ext_args *ext) {
@@ -135,7 +142,6 @@ jobs:
             void *map_dm    = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelMapDirectMemory");
             void *dm_size   = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelGetDirectMemorySize");
             void *create_eq = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelCreateEqueue");
-            void *delete_eq = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelDeleteEqueue");
             if (!usleep || !load_mod || !alloc_dm || !map_dm) return -1;
             if (cancel) {
                 u64 gs = *(u64 *)(eboot_base + EBOOT_GS_THREAD);
@@ -391,7 +397,7 @@ jobs:
         #endif
         EOF
 
-        # Write ui.c (with full font table)
+        # Write ui.c
         cat > src/ui.c << 'EOF'
         #include "ui.h"
         static const u8 font_data[59][8] = {
@@ -521,20 +527,11 @@ jobs:
         #endif
         EOF
 
-        # Write ftp_server.c (simplified but functional for demo)
+        # Write ftp_server.c
         cat > src/ftp_server.c << 'EOF'
         #include "ftp_server.h"
         #include <string.h>
         #include <stdlib.h>
-        static void send_response(s32 fd, const char *msg) {
-            // Placeholder – would write to socket
-        }
-        static s32 accept_connection(s32 listen_fd) {
-            return 0; // Placeholder
-        }
-        static s32 recv_data(s32 fd, void *buf, int len) {
-            return 0; // Placeholder
-        }
         int ftp_serve(s32 srv_fd, s32 data_listen_fd,
                       void *G, void *D, void *load_mod, void *mmap,
                       void *kopen, void *kwrite, void *kclose, void *kmkdir,
@@ -783,33 +780,35 @@ jobs:
         }
         EOF
 
-    - name: Write Makefile (corrected)
+    - name: Write Makefile (corrected with config.h path)
       run: |
         cat > Makefile << 'EOF'
         CC = x86_64-elf-gcc
         LD = x86_64-elf-ld
         OBJCOPY = x86_64-elf-objcopy
-        CFLAGS = -nostdlib -fno-stack-protector -fPIC -O2 -I. -Wall -Ithird_party/chocolate-doom/src
+        CFLAGS = -nostdlib -fno-stack-protector -fPIC -O2 -I. -Wall -Ithird_party/chocolate-doom/src -Ithird_party/chocolate-doom
         LDFLAGS = -T linker.ld
 
         # Our source files (in src/)
         SRC_FILES = src/hijack.c src/audio.c src/input.c src/ui.c src/ftp_server.c src/i_ps.c src/doom_engine.c src/doom_main.c
         OBJS = $(SRC_FILES:src/%.c=%.o)
 
-        # Chocolate Doom sources (exclude original system interface files)
-        DOOM_SRC_FILES = $(wildcard third_party/chocolate-doom/src/*.c)
-        DOOM_SRC_FILES := $(filter-out third_party/chocolate-doom/src/i_system.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out third_party/chocolate-doom/src/i_video.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out third_party/chocolate-doom/src/i_sound.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out third_party/chocolate-doom/src/i_input.c, $(DOOM_SRC_FILES))
-        DOOM_OBJS = $(DOOM_SRC_FILES:third_party/chocolate-doom/src/%.c=doom_%.o)
+        # Chocolate Doom sources
+        DOOM_SRC_DIR = third_party/chocolate-doom/src
+        DOOM_SRC_FILES = $(wildcard $(DOOM_SRC_DIR)/*.c)
+        # Exclude original system interface files
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_system.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_video.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_sound.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_input.c, $(DOOM_SRC_FILES))
+        DOOM_OBJS = $(DOOM_SRC_FILES:$(DOOM_SRC_DIR)/%.c=doom_%.o)
 
         all: doom.bin
 
         %.o: src/%.c
         	$(CC) $(CFLAGS) -c $< -o $@
 
-        doom_%.o: third_party/chocolate-doom/src/%.c
+        doom_%.o: $(DOOM_SRC_DIR)/%.c
         	$(CC) $(CFLAGS) -c $< -o $@
 
         doom.elf: $(OBJS) $(DOOM_OBJS)
@@ -849,7 +848,7 @@ jobs:
         "
         echo "Hex string length: $(wc -c < doom_hex.txt) characters"
 
-    - name: Write lua/doom.lua with placeholder
+    - name: Write lua/doom.lua
       run: |
         mkdir -p lua
         cat > lua/doom.lua << 'EOF'
