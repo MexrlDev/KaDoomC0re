@@ -48,11 +48,696 @@ jobs:
 
     - name: Write all source files
       run: |
-        # (All source files as before – omitted for brevity; they remain unchanged)
-        # Please refer to previous messages for the full source generation.
-        # To keep this response manageable, I'll skip repeating the whole 300+ lines.
-        # The only change is the Makefile below.
-        echo "Source files written (unchanged)."
+        # core.h
+        cat > src/core.h << 'EOF'
+        /* core.h - Common types and helpers */
+        #ifndef CORE_H
+        #define CORE_H
+        typedef unsigned long  u64;
+        typedef unsigned int   u32;
+        typedef unsigned short u16;
+        typedef unsigned char  u8;
+        typedef long           s64;
+        typedef int            s32;
+        typedef short          s16;
+        typedef signed char    s8;
+        #define GADGET_OFFSET    0x31AA9
+        #define LIBKERNEL_HANDLE 0x2001
+        #define EBOOT_GS_THREAD  0x057F89B0
+        #define EBOOT_VIDOUT     0x02d695d0
+        #define SCR_W       1920
+        #define SCR_H       1080
+        #define FB_SIZE     (SCR_W * SCR_H * 4)
+        #define FB_ALIGNED  ((FB_SIZE + 0x1FFFFF) & ~0x1FFFFF)
+        #define FB_TOTAL    (FB_ALIGNED * 2)
+        struct ext_args {
+            s64 status;
+            s64 step;
+            u32 frame_count;
+            u32 _pad;
+            s32 log_fd;
+            s32 pad_fd;
+            u8  log_addr[16];
+            u64 dbg[8];
+        };
+        __attribute__((naked))
+        static u64 native_call(void *gadget, void *fn,
+                               u64 a1, u64 a2, u64 a3,
+                               u64 a4, u64 a5, u64 a6) {
+            __asm__ volatile (
+                "pushq %%rbx\n\t"
+                "movq %%rsi, %%rbx\n\t"
+                "movq %%rdi, %%rax\n\t"
+                "movq %%rdx, %%rdi\n\t"
+                "movq %%rcx, %%rsi\n\t"
+                "movq %%r8,  %%rdx\n\t"
+                "movq %%r9,  %%rcx\n\t"
+                "movq 16(%%rsp), %%r8\n\t"
+                "movq 24(%%rsp), %%r9\n\t"
+                "callq *%%rax\n\t"
+                "popq %%rbx\n\t"
+                "retq" ::: "memory"
+            );
+        }
+        static void *resolve_sym(void *gadget, void *dlsym_fn, s32 handle, const char *name) {
+            void *addr = 0;
+            native_call(gadget, dlsym_fn, (u64)handle, (u64)name, (u64)&addr, 0, 0, 0);
+            return addr;
+        }
+        #define NC native_call
+        #define SYM resolve_sym
+        #define NULL 0
+        #endif
+        EOF
+
+        # hijack.h
+        cat > src/hijack.h << 'EOF'
+        #ifndef HIJACK_H
+        #define HIJACK_H
+        #include "core.h"
+        struct video_ctx {
+            void *G, *D;
+            void *vid_open, *vid_close, *vid_reg, *vid_flip, *vid_rate, *vid_evt;
+            s32   handle;
+            u64   eq;
+            void *vmem;
+            void *fbs[2];
+        };
+        int video_hijack(struct video_ctx *v, void *G, void *D, u64 eboot_base, struct ext_args *ext);
+        void video_cleanup(struct video_ctx *v);
+        void video_flip(struct video_ctx *v, int active);
+        #endif
+        EOF
+
+        # hijack.c
+        cat > src/hijack.c << 'EOF'
+        #include "hijack.h"
+        int video_hijack(struct video_ctx *v, void *G, void *D, u64 eboot_base, struct ext_args *ext) {
+            v->G = G; v->D = D;
+            v->handle = -1; v->eq = 0; v->vmem = 0; v->fbs[0] = v->fbs[1] = 0;
+            void *usleep    = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelUsleep");
+            void *cancel    = SYM(G, D, LIBKERNEL_HANDLE, "scePthreadCancel");
+            void *load_mod  = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelLoadStartModule");
+            void *alloc_dm  = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelAllocateDirectMemory");
+            void *map_dm    = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelMapDirectMemory");
+            void *dm_size   = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelGetDirectMemorySize");
+            void *create_eq = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelCreateEqueue");
+            if (!usleep || !load_mod || !alloc_dm || !map_dm) return -1;
+            if (cancel) {
+                u64 gs = *(u64 *)(eboot_base + EBOOT_GS_THREAD);
+                if (gs) NC(G, cancel, gs, 0,0,0,0,0);
+            }
+            NC(G, usleep, 300000, 0,0,0,0,0);
+            s32 vid_mod = (s32)NC(G, load_mod, (u64)"libSceVideoOut.sprx", 0,0,0,0,0);
+            if (vid_mod < 0) return -2;
+            v->vid_open  = SYM(G, D, vid_mod, "sceVideoOutOpen");
+            v->vid_close = SYM(G, D, vid_mod, "sceVideoOutClose");
+            v->vid_reg   = SYM(G, D, vid_mod, "sceVideoOutRegisterBuffers");
+            v->vid_flip  = SYM(G, D, vid_mod, "sceVideoOutSubmitFlip");
+            v->vid_rate  = SYM(G, D, vid_mod, "sceVideoOutSetFlipRate");
+            v->vid_evt   = SYM(G, D, vid_mod, "sceVideoOutAddFlipEvent");
+            if (!v->vid_open || !v->vid_close || !v->vid_reg || !v->vid_flip) return -3;
+            s32 emu_vid = *(s32 *)(eboot_base + EBOOT_VIDOUT);
+            if (v->vid_close && emu_vid >= 0) NC(G, v->vid_close, (u64)emu_vid, 0,0,0,0,0);
+            NC(G, usleep, 100000, 0,0,0,0,0);
+            v->handle = (s32)NC(G, v->vid_open, 0xFF, 0, 0, 0, 0, 0);
+            if (v->handle < 0) return -4;
+            if (create_eq) NC(G, create_eq, (u64)&v->eq, (u64)"vidq", 0,0,0,0);
+            if (v->vid_evt && v->eq) NC(G, v->vid_evt, v->eq, (u64)v->handle, 0,0,0,0);
+            u64 mem_total = dm_size ? NC(G, dm_size, 0,0,0,0,0,0) : 0x300000000ULL;
+            u64 phys = 0;
+            NC(G, alloc_dm, 0, mem_total, FB_TOTAL, 0x200000, 3, (u64)&phys);
+            NC(G, map_dm, (u64)&v->vmem, FB_TOTAL, 0x33, 0, phys, 0x200000);
+            if (!v->vmem) {
+                if (v->vid_close) NC(G, v->vid_close, (u64)v->handle, 0,0,0,0,0);
+                return -5;
+            }
+            u32 *fb0 = (u32*)v->vmem;
+            u32 *fb1 = (u32*)((u8*)v->vmem + FB_ALIGNED);
+            for (int i = 0; i < SCR_W * SCR_H; i++) { fb0[i] = 0xFF000000; fb1[i] = 0xFF000000; }
+            u8 attr[64] = {0};
+            *(u32*)(attr + 0)  = 0x80000000;
+            *(u32*)(attr + 4)  = 1;
+            *(u32*)(attr + 12) = SCR_W;
+            *(u32*)(attr + 16) = SCR_H;
+            *(u32*)(attr + 20) = SCR_W;
+            v->fbs[0] = fb0;
+            v->fbs[1] = fb1;
+            if (NC(G, v->vid_reg, (u64)v->handle, 0, (u64)v->fbs, 2, (u64)attr, 0) != 0) {
+                if (v->vid_close) NC(G, v->vid_close, (u64)v->handle, 0,0,0,0,0);
+                return -6;
+            }
+            if (v->vid_rate) NC(G, v->vid_rate, (u64)v->handle, 0, 0,0,0,0);
+            return 0;
+        }
+        void video_cleanup(struct video_ctx *v) {
+            if (!v->G) return;
+            void *usleep = SYM(v->G, v->D, LIBKERNEL_HANDLE, "sceKernelUsleep");
+            void *delete_eq = SYM(v->G, v->D, LIBKERNEL_HANDLE, "sceKernelDeleteEqueue");
+            if (v->fbs[0]) {
+                u32 *fb = (u32*)v->fbs[0];
+                for (int i = 0; i < SCR_W * SCR_H; i++) fb[i] = 0xFF000000;
+            }
+            if (v->fbs[1]) {
+                u32 *fb = (u32*)v->fbs[1];
+                for (int i = 0; i < SCR_W * SCR_H; i++) fb[i] = 0xFF000000;
+            }
+            if (v->vid_flip && v->handle >= 0)
+                NC(v->G, v->vid_flip, (u64)v->handle, 0, 1, 0, 0, 0);
+            if (usleep) NC(v->G, usleep, 50000, 0,0,0,0,0);
+            if (v->vid_close && v->handle >= 0)
+                NC(v->G, v->vid_close, (u64)v->handle, 0,0,0,0,0);
+            if (v->eq && delete_eq)
+                NC(v->G, delete_eq, v->eq, 0,0,0,0,0);
+        }
+        void video_flip(struct video_ctx *v, int active) {
+            if (!v->vid_flip || v->handle < 0) return;
+            NC(v->G, v->vid_flip, (u64)v->handle, (u64)active, 1, 0, 0, 0);
+            if (v->eq) {
+                void *wait_eq = SYM(v->G, v->D, LIBKERNEL_HANDLE, "sceKernelWaitEqueue");
+                if (wait_eq) {
+                    u8 evt[64]; s32 cnt = 0;
+                    NC(v->G, wait_eq, v->eq, (u64)evt, 1, (u64)&cnt, 0, 0);
+                }
+            }
+        }
+        EOF
+
+        # audio.h
+        cat > src/audio.h << 'EOF'
+        #ifndef AUDIO_H
+        #define AUDIO_H
+        #include "core.h"
+        #define SAMPLE_RATE     48000
+        #define SAMPLES_PER_BUF 256
+        #define AUDIO_S16_STEREO 1
+        struct audio_ctx {
+            void *G, *D;
+            void *aud_open, *aud_out, *aud_close;
+            s32 handle;
+            s16 *buffer;
+        };
+        int audio_init(struct audio_ctx *a, void *G, void *D);
+        void audio_submit(struct audio_ctx *a, const s16 *samples, int count);
+        void audio_cleanup(struct audio_ctx *a);
+        #endif
+        EOF
+
+        # audio.c
+        cat > src/audio.c << 'EOF'
+        #include "audio.h"
+        int audio_init(struct audio_ctx *a, void *G, void *D) {
+            a->G = G; a->D = D;
+            a->handle = -1;
+            a->buffer = NULL;
+            void *load_mod = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelLoadStartModule");
+            s32 aud_mod = (s32)NC(G, load_mod, (u64)"libSceAudioOut.sprx", 0,0,0,0,0);
+            if (aud_mod < 0) return -1;
+            a->aud_open  = SYM(G, D, aud_mod, "sceAudioOutOpen");
+            a->aud_out   = SYM(G, D, aud_mod, "sceAudioOutOutput");
+            a->aud_close = SYM(G, D, aud_mod, "sceAudioOutClose");
+            if (!a->aud_open || !a->aud_out || !a->aud_close) return -2;
+            a->handle = (s32)NC(G, a->aud_open, 0xFF, 0, 0, SAMPLES_PER_BUF, SAMPLE_RATE, AUDIO_S16_STEREO);
+            if (a->handle < 0) return -3;
+            a->buffer = (s16*)NC(G, SYM(G, D, LIBKERNEL_HANDLE, "malloc"), SAMPLES_PER_BUF * 2 * sizeof(s16), 0,0,0,0,0);
+            if (!a->buffer) return -4;
+            return 0;
+        }
+        void audio_submit(struct audio_ctx *a, const s16 *samples, int count) {
+            if (!a->aud_out || a->handle < 0 || !a->buffer) return;
+            int remaining = count;
+            int offset = 0;
+            while (remaining > 0) {
+                int chunk = remaining < SAMPLES_PER_BUF ? remaining : SAMPLES_PER_BUF;
+                NC(a->G, a->aud_out, (u64)a->handle, (u64)(samples + offset), 0, 0, 0, 0);
+                remaining -= chunk;
+                offset += chunk;
+            }
+        }
+        void audio_cleanup(struct audio_ctx *a) {
+            if (a->aud_close && a->handle >= 0)
+                NC(a->G, a->aud_close, (u64)a->handle, 0,0,0,0,0);
+            if (a->buffer) {
+                void *free_fn = SYM(a->G, a->D, LIBKERNEL_HANDLE, "free");
+                if (free_fn) NC(a->G, free_fn, (u64)a->buffer, 0,0,0,0,0);
+                a->buffer = NULL;
+            }
+        }
+        EOF
+
+        # input.h
+        cat > src/input.h << 'EOF'
+        #ifndef INPUT_H
+        #define INPUT_H
+        #include "core.h"
+        #define DOOM_BTN_UP     0x01
+        #define DOOM_BTN_DOWN   0x02
+        #define DOOM_BTN_LEFT   0x04
+        #define DOOM_BTN_RIGHT  0x08
+        #define DOOM_BTN_SHOOT  0x10
+        #define DOOM_BTN_USE    0x20
+        #define DOOM_BTN_WEAPON 0x40
+        #define DOOM_BTN_MENU   0x80
+        #define DOOM_BTN_EXIT   0x100
+        struct input_ctx {
+            void *G, *D;
+            void *pad_init, *pad_geth, *pad_read;
+            s32 pad_h;
+            u32 state;
+            u32 web_state;
+            s32 web_fd;
+            s32 web_client;
+            u8 *web_page;
+            u64 web_page_len;
+        };
+        int input_init(struct input_ctx *in, void *G, void *D, u64 eboot_base, struct ext_args *ext);
+        void input_poll(struct input_ctx *in);
+        u32 input_get_state(struct input_ctx *in);
+        void input_cleanup(struct input_ctx *in);
+        #endif
+        EOF
+
+        # input.c
+        cat > src/input.c << 'EOF'
+        #include "input.h"
+        static u32 ds4_to_doom(u32 ds4_buttons) {
+            u32 r = 0;
+            if (ds4_buttons & 0x00000010) r |= DOOM_BTN_UP;
+            if (ds4_buttons & 0x00000040) r |= DOOM_BTN_DOWN;
+            if (ds4_buttons & 0x00000080) r |= DOOM_BTN_LEFT;
+            if (ds4_buttons & 0x00000020) r |= DOOM_BTN_RIGHT;
+            if (ds4_buttons & 0x00004000) r |= DOOM_BTN_SHOOT;
+            if (ds4_buttons & 0x00008000) r |= DOOM_BTN_USE;
+            if (ds4_buttons & 0x00001000) r |= DOOM_BTN_WEAPON;
+            if (ds4_buttons & 0x00002000) r |= DOOM_BTN_MENU;
+            if (ds4_buttons & 0x00000008) r |= DOOM_BTN_MENU;
+            if (ds4_buttons & 0x00000800) r |= DOOM_BTN_EXIT;
+            return r;
+        }
+        int input_init(struct input_ctx *in, void *G, void *D, u64 eboot_base, struct ext_args *ext) {
+            in->G = G; in->D = D;
+            in->pad_h = -1;
+            in->state = 0;
+            in->web_state = 0;
+            in->web_fd = -1;
+            in->web_client = -1;
+            in->web_page = (u8*)ext->dbg[1];
+            in->web_page_len = ext->dbg[2];
+            void *load_mod = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelLoadStartModule");
+            s32 pad_mod = (s32)NC(G, load_mod, (u64)"libScePad.sprx", 0,0,0,0,0);
+            if (pad_mod < 0) return -1;
+            in->pad_init = SYM(G, D, pad_mod, "scePadInit");
+            in->pad_geth = SYM(G, D, pad_mod, "scePadGetHandle");
+            in->pad_read = SYM(G, D, pad_mod, "scePadRead");
+            if (in->pad_init) NC(G, in->pad_init, 0,0,0,0,0,0);
+            if (in->pad_geth) in->pad_h = (s32)NC(G, in->pad_geth, (u64)ext->dbg[3], 0,0,0,0,0);
+            return 0;
+        }
+        void input_poll(struct input_ctx *in) {
+            u32 combined = 0;
+            if (in->pad_h >= 0 && in->pad_read) {
+                u8 pad_buf[128] = {0};
+                s32 n = (s32)NC(in->G, in->pad_read, (u64)in->pad_h, (u64)pad_buf, 1, 0, 0, 0);
+                if (n > 0 && (u32)n < 0x80000000) {
+                    u32 raw = *(u32*)pad_buf;
+                    if (!(raw & 0x80000000))
+                        combined |= ds4_to_doom(raw & 0x001FFFFF);
+                }
+            }
+            combined |= in->web_state;
+            in->state = combined;
+        }
+        u32 input_get_state(struct input_ctx *in) {
+            return in->state;
+        }
+        void input_cleanup(struct input_ctx *in) {
+            if (in->web_client >= 0) {
+                void *close = SYM(in->G, in->D, LIBKERNEL_HANDLE, "close");
+                if (close) NC(in->G, close, (u64)in->web_client, 0,0,0,0,0);
+                in->web_client = -1;
+            }
+            if (in->web_fd >= 0) {
+                void *close = SYM(in->G, in->D, LIBKERNEL_HANDLE, "close");
+                if (close) NC(in->G, close, (u64)in->web_fd, 0,0,0,0,0);
+                in->web_fd = -1;
+            }
+        }
+        EOF
+
+        # ui.h
+        cat > src/ui.h << 'EOF'
+        #ifndef UI_H
+        #define UI_H
+        #include "core.h"
+        void ui_clear_fb(u32 *fb, u32 color);
+        void ui_draw_char_scaled(u32 *fb, int x, int y, char ch, int scale, u32 color);
+        void ui_draw_text_scaled(u32 *fb, const char *s, int scale, u32 color, int y_pos);
+        void ui_draw_str(u32 *fb, int x, int y, const char *s, u32 color);
+        int ui_str_len(const char *s);
+        #endif
+        EOF
+
+        # ui.c (with full font)
+        cat > src/ui.c << 'EOF'
+        #include "ui.h"
+        static const u8 font_data[59][8] = {
+            {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
+            {0x18,0x18,0x18,0x18,0x18,0x00,0x18,0x00},
+            {0x66,0x66,0x66,0x00,0x00,0x00,0x00,0x00},
+            {0x6C,0x6C,0xFE,0x6C,0xFE,0x6C,0x6C,0x00},
+            {0x18,0x3E,0x60,0x3C,0x06,0x7C,0x18,0x00},
+            {0x00,0x66,0xAC,0xD8,0x36,0x6A,0xCC,0x00},
+            {0x38,0x6C,0x38,0x76,0xDC,0xCC,0x76,0x00},
+            {0x18,0x18,0x30,0x00,0x00,0x00,0x00,0x00},
+            {0x0C,0x18,0x30,0x30,0x30,0x18,0x0C,0x00},
+            {0x30,0x18,0x0C,0x0C,0x0C,0x18,0x30,0x00},
+            {0x00,0x66,0x3C,0xFF,0x3C,0x66,0x00,0x00},
+            {0x00,0x18,0x18,0x7E,0x18,0x18,0x00,0x00},
+            {0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x30},
+            {0x00,0x00,0x00,0x7E,0x00,0x00,0x00,0x00},
+            {0x00,0x00,0x00,0x00,0x00,0x18,0x18,0x00},
+            {0x02,0x04,0x08,0x10,0x20,0x40,0x00,0x00},
+            {0x3C,0x46,0x4A,0x52,0x62,0x3C,0x00,0x00},
+            {0x18,0x38,0x18,0x18,0x18,0x7E,0x00,0x00},
+            {0x3C,0x42,0x02,0x3C,0x40,0x7E,0x00,0x00},
+            {0x3C,0x42,0x0C,0x02,0x42,0x3C,0x00,0x00},
+            {0x08,0x18,0x28,0x48,0x7E,0x08,0x00,0x00},
+            {0x7E,0x40,0x7C,0x02,0x42,0x3C,0x00,0x00},
+            {0x1C,0x20,0x40,0x7C,0x42,0x3C,0x00,0x00},
+            {0x7E,0x02,0x04,0x08,0x10,0x10,0x00,0x00},
+            {0x3C,0x42,0x3C,0x42,0x42,0x3C,0x00,0x00},
+            {0x3C,0x42,0x3E,0x02,0x04,0x38,0x00,0x00},
+            {0x00,0x18,0x18,0x00,0x18,0x18,0x00,0x00},
+            {0x00,0x18,0x18,0x00,0x18,0x18,0x30,0x00},
+            {0x06,0x0C,0x18,0x30,0x18,0x0C,0x06,0x00},
+            {0x00,0x00,0x7E,0x00,0x7E,0x00,0x00,0x00},
+            {0x60,0x30,0x18,0x0C,0x18,0x30,0x60,0x00},
+            {0x3C,0x42,0x04,0x08,0x00,0x08,0x00,0x00},
+            {0x3C,0x42,0x5A,0x56,0x40,0x3C,0x00,0x00},
+            {0x18,0x24,0x42,0x7E,0x42,0x42,0x00,0x00},
+            {0x7C,0x42,0x7C,0x42,0x42,0x7C,0x00,0x00},
+            {0x3C,0x42,0x40,0x40,0x42,0x3C,0x00,0x00},
+            {0x78,0x44,0x42,0x42,0x44,0x78,0x00,0x00},
+            {0x7E,0x40,0x7C,0x40,0x40,0x7E,0x00,0x00},
+            {0x7E,0x40,0x7C,0x40,0x40,0x40,0x00,0x00},
+            {0x3C,0x42,0x40,0x4E,0x42,0x3C,0x00,0x00},
+            {0x42,0x42,0x7E,0x42,0x42,0x42,0x00,0x00},
+            {0x7E,0x18,0x18,0x18,0x18,0x7E,0x00,0x00},
+            {0x1E,0x06,0x06,0x06,0x46,0x3C,0x00,0x00},
+            {0x44,0x48,0x70,0x48,0x44,0x42,0x00,0x00},
+            {0x40,0x40,0x40,0x40,0x40,0x7E,0x00,0x00},
+            {0x42,0x66,0x5A,0x42,0x42,0x42,0x00,0x00},
+            {0x42,0x62,0x52,0x4A,0x46,0x42,0x00,0x00},
+            {0x3C,0x42,0x42,0x42,0x42,0x3C,0x00,0x00},
+            {0x7C,0x42,0x42,0x7C,0x40,0x40,0x00,0x00},
+            {0x3C,0x42,0x42,0x4A,0x44,0x3A,0x00,0x00},
+            {0x7C,0x42,0x42,0x7C,0x44,0x42,0x00,0x00},
+            {0x3C,0x40,0x3C,0x02,0x42,0x3C,0x00,0x00},
+            {0x7E,0x18,0x18,0x18,0x18,0x18,0x00,0x00},
+            {0x42,0x42,0x42,0x42,0x42,0x3C,0x00,0x00},
+            {0x42,0x42,0x42,0x42,0x24,0x18,0x00,0x00},
+            {0x42,0x42,0x42,0x5A,0x66,0x42,0x00,0x00},
+            {0x42,0x24,0x18,0x18,0x24,0x42,0x00,0x00},
+            {0x42,0x42,0x24,0x18,0x18,0x18,0x00,0x00},
+            {0x7E,0x04,0x08,0x10,0x20,0x7E,0x00,0x00},
+        };
+        void ui_clear_fb(u32 *fb, u32 color) {
+            for (int i = 0; i < SCR_W * SCR_H; i++) fb[i] = color;
+        }
+        void ui_draw_char_scaled(u32 *fb, int x, int y, char ch, int scale, u32 color) {
+            int idx = 0;
+            if (ch >= 'a' && ch <= 'z') ch -= 32;
+            if (ch >= 32 && ch <= 90) idx = ch - 32;
+            else idx = 0;
+            const u8 *glyph = font_data[idx];
+            for (int r = 0; r < 8; r++) {
+                u8 bits = glyph[r];
+                for (int c = 0; c < 8; c++) {
+                    if (bits & (0x80 >> c)) {
+                        int base_x = x + c * scale;
+                        int base_y = y + r * scale;
+                        for (int dy = 0; dy < scale; dy++) {
+                            u32 *row = &fb[(base_y + dy) * SCR_W + base_x];
+                            for (int dx = 0; dx < scale; dx++) {
+                                row[dx] = color;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        void ui_draw_text_scaled(u32 *fb, const char *s, int scale, u32 color, int y_pos) {
+            int len = ui_str_len(s);
+            int total_w = len * (8 * scale);
+            int x = (SCR_W - total_w) / 2;
+            int y = y_pos;
+            while (*s) {
+                ui_draw_char_scaled(fb, x, y, *s, scale, color);
+                x += 8 * scale;
+                s++;
+            }
+        }
+        void ui_draw_str(u32 *fb, int x, int y, const char *s, u32 color) {
+            while (*s) {
+                ui_draw_char_scaled(fb, x, y, *s, 2, color);
+                x += 16;
+                s++;
+            }
+        }
+        int ui_str_len(const char *s) {
+            int n = 0;
+            while (*s++) n++;
+            return n;
+        }
+        EOF
+
+        # ftp_server.h
+        cat > src/ftp_server.h << 'EOF'
+        #ifndef FTP_SERVER_H
+        #define FTP_SERVER_H
+        #include "core.h"
+        int ftp_serve(s32 srv_fd, s32 data_listen_fd,
+                      void *G, void *D, void *load_mod, void *mmap,
+                      void *kopen, void *kwrite, void *kclose, void *kmkdir,
+                      void *getdents, void *usleep,
+                      void *recvfrom, void *sendto, void *accept,
+                      void *getsockname,
+                      s32 log_fd, u8 *log_sa, s32 userId,
+                      u8 **wad_data, u64 *wad_size);
+        #endif
+        EOF
+
+        # ftp_server.c
+        cat > src/ftp_server.c << 'EOF'
+        #include "ftp_server.h"
+        #include <string.h>
+        #include <stdlib.h>
+        int ftp_serve(s32 srv_fd, s32 data_listen_fd,
+                      void *G, void *D, void *load_mod, void *mmap,
+                      void *kopen, void *kwrite, void *kclose, void *kmkdir,
+                      void *getdents, void *usleep,
+                      void *recvfrom, void *sendto, void *accept,
+                      void *getsockname,
+                      s32 log_fd, u8 *log_sa, s32 userId,
+                      u8 **wad_data, u64 *wad_size) {
+            static u8 dummy_wad[] = {0x49, 0x57, 0x41, 0x44}; // "IWAD"
+            if (wad_data) *wad_data = dummy_wad;
+            if (wad_size) *wad_size = sizeof(dummy_wad);
+            // In production, implement full FTP protocol here
+            return 0;
+        }
+        EOF
+
+        # i_ps.h
+        cat > src/i_ps.h << 'EOF'
+        #ifndef I_PS_H
+        #define I_PS_H
+        #include "core.h"
+        #include "hijack.h"
+        #include "audio.h"
+        #include "input.h"
+        void I_Init(void *G, void *D, struct video_ctx *video, struct audio_ctx *audio, struct input_ctx *input);
+        void I_UpdateScreen(void);
+        void I_StartSound(void);
+        void I_SubmitSound(void);
+        void I_GetEvent(void);
+        void I_Quit(void);
+        extern struct video_ctx *doom_video;
+        extern struct audio_ctx *doom_audio;
+        extern struct input_ctx *doom_input;
+        extern u8 *doom_wad_data;
+        extern u64 doom_wad_size;
+        #endif
+        EOF
+
+        # i_ps.c
+        cat > src/i_ps.c << 'EOF'
+        #include "i_ps.h"
+        #include "ui.h"
+        #include <string.h>
+        struct video_ctx *doom_video = NULL;
+        struct audio_ctx *doom_audio = NULL;
+        struct input_ctx *doom_input = NULL;
+        u8 *doom_wad_data = NULL;
+        u64 doom_wad_size = 0;
+        static u8 *doom_screen = NULL;
+        static int screen_w = 320, screen_h = 200;
+        void I_Init(void *G, void *D, struct video_ctx *video, struct audio_ctx *audio, struct input_ctx *input) {
+            doom_video = video;
+            doom_audio = audio;
+            doom_input = input;
+            doom_screen = (u8*)NC(G, SYM(G, D, LIBKERNEL_HANDLE, "malloc"), screen_w * screen_h, 0,0,0,0,0);
+            memset(doom_screen, 0, screen_w * screen_h);
+        }
+        void I_UpdateScreen(void) {
+            if (!doom_video || !doom_screen) return;
+            u32 *fb = (u32*)doom_video->fbs[doom_video->handle % 2];
+            ui_clear_fb(fb, 0xFF000000);
+            int scale = 6;
+            int off_x = (SCR_W - screen_w * scale) / 2;
+            int off_y = (SCR_H - screen_h * scale) / 2;
+            for (int y = 0; y < screen_h; y++) {
+                for (int x = 0; x < screen_w; x++) {
+                    u8 pixel = doom_screen[y * screen_w + x];
+                    u32 color = 0xFF000000 | (pixel << 16) | (pixel << 8) | pixel;
+                    for (int dy = 0; dy < scale; dy++) {
+                        for (int dx = 0; dx < scale; dx++) {
+                            int px = off_x + x * scale + dx;
+                            int py = off_y + y * scale + dy;
+                            if (px < SCR_W && py < SCR_H)
+                                fb[py * SCR_W + px] = color;
+                        }
+                    }
+                }
+            }
+            video_flip(doom_video, doom_video->handle % 2);
+            doom_video->handle++;
+        }
+        void I_StartSound(void) {}
+        void I_SubmitSound(void) {}
+        void I_GetEvent(void) {
+            input_poll(doom_input);
+        }
+        void I_Quit(void) {
+            if (doom_screen) {
+                void *free_fn = SYM(doom_video->G, doom_video->D, LIBKERNEL_HANDLE, "free");
+                if (free_fn) NC(doom_video->G, free_fn, (u64)doom_screen, 0,0,0,0,0);
+                doom_screen = NULL;
+            }
+        }
+        EOF
+
+        # doom_engine.h
+        cat > src/doom_engine.h << 'EOF'
+        #ifndef DOOM_ENGINE_H
+        #define DOOM_ENGINE_H
+        #include "core.h"
+        #include "hijack.h"
+        #include "audio.h"
+        #include "input.h"
+        struct doom_ctx {
+            void *G, *D;
+            struct video_ctx *video;
+            struct audio_ctx *audio;
+            struct input_ctx *input;
+            u8 *wad_data;
+            u64 wad_size;
+            int running;
+        };
+        void doom_init(struct doom_ctx *ctx);
+        void doom_run(struct doom_ctx *ctx);
+        void doom_shutdown(struct doom_ctx *ctx);
+        #endif
+        EOF
+
+        # doom_engine.c
+        cat > src/doom_engine.c << 'EOF'
+        #include "doom_engine.h"
+        #include "i_ps.h"
+        extern void D_DoomMain(void);
+        void doom_init(struct doom_ctx *ctx) {
+            ctx->running = 1;
+            doom_wad_data = ctx->wad_data;
+            doom_wad_size = ctx->wad_size;
+            I_Init(ctx->G, ctx->D, ctx->video, ctx->audio, ctx->input);
+        }
+        void doom_run(struct doom_ctx *ctx) {
+            D_DoomMain();
+        }
+        void doom_shutdown(struct doom_ctx *ctx) {
+            I_Quit();
+            ctx->running = 0;
+        }
+        EOF
+
+        # doom_main.c
+        cat > src/doom_main.c << 'EOF'
+        #include "core.h"
+        #include "hijack.h"
+        #include "audio.h"
+        #include "input.h"
+        #include "ftp_server.h"
+        #include "doom_engine.h"
+        __attribute__((section(".text._start")))
+        void _start(u64 eboot_base, u64 dlsym_addr, struct ext_args *ext) {
+            void *G = (void *)(eboot_base + GADGET_OFFSET);
+            void *D = (void *)dlsym_addr;
+            void *load_mod  = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelLoadStartModule");
+            void *mmap      = SYM(G, D, LIBKERNEL_HANDLE, "mmap");
+            void *kopen     = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelOpen");
+            void *kwrite    = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelWrite");
+            void *kclose    = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelClose");
+            void *kmkdir    = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelMkdir");
+            void *getdents  = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelGetdents");
+            void *usleep    = SYM(G, D, LIBKERNEL_HANDLE, "sceKernelUsleep");
+            void *recvfrom  = SYM(G, D, LIBKERNEL_HANDLE, "recvfrom");
+            void *sendto    = SYM(G, D, LIBKERNEL_HANDLE, "sendto");
+            void *accept    = SYM(G, D, LIBKERNEL_HANDLE, "accept");
+            void *getsockname_fn = SYM(G, D, LIBKERNEL_HANDLE, "getsockname");
+            s32 log_fd = ext->log_fd;
+            u8 *log_sa = ext->log_addr;
+            s32 userId = (s32)ext->dbg[3];
+            s32 ftp_srv = (s32)ext->dbg[4];
+            s32 ftp_data_fd = (s32)ext->dbg[5];
+            struct video_ctx video = {0};
+            int ret = video_hijack(&video, G, D, eboot_base, ext);
+            if (ret != 0) { ext->status = ret; ext->step = 1; return; }
+            struct audio_ctx audio = {0};
+            if (audio_init(&audio, G, D) != 0) {
+                video_cleanup(&video);
+                ext->status = -2; return;
+            }
+            struct input_ctx input = {0};
+            if (input_init(&input, G, D, eboot_base, ext) != 0) {
+                audio_cleanup(&audio);
+                video_cleanup(&video);
+                ext->status = -3; return;
+            }
+            u8 *wad_data = NULL;
+            u64 wad_size = 0;
+            ftp_serve(ftp_srv, ftp_data_fd, G, D, load_mod, mmap,
+                      kopen, kwrite, kclose, kmkdir,
+                      getdents, usleep,
+                      recvfrom, sendto, accept,
+                      getsockname_fn,
+                      log_fd, log_sa, userId,
+                      &wad_data, &wad_size);
+            struct doom_ctx doom = {0};
+            doom.G = G; doom.D = D;
+            doom.video = &video;
+            doom.audio = &audio;
+            doom.input = &input;
+            doom.wad_data = wad_data;
+            doom.wad_size = wad_size;
+            doom_init(&doom);
+            doom_run(&doom);
+            doom_shutdown(&doom);
+            input_cleanup(&input);
+            audio_cleanup(&audio);
+            video_cleanup(&video);
+            ext->status = 0;
+        }
+        EOF
 
     - name: Write linker.ld
       run: |
@@ -116,9 +801,13 @@ jobs:
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_video.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_sound.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_input.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_endoom.c, $(DOOM_SRC_FILES))   # needs textscreen
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_network.c, $(DOOM_SRC_FILES)) # networking not needed
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/net_*.c, $(DOOM_SRC_FILES))     # networking
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_endoom.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_network.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_joystick.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_timer.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_main.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/net_*.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/txt_*.c, $(DOOM_SRC_FILES))  # textscreen library
         DOOM_OBJS = $(DOOM_SRC_FILES:$(DOOM_SRC_DIR)/%.c=doom_%.o)
 
         all: doom.bin
