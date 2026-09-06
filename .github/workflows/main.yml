@@ -787,7 +787,7 @@ jobs:
         CC = x86_64-elf-gcc
         LD = x86_64-elf-ld
         OBJCOPY = x86_64-elf-objcopy
-        CFLAGS = -nostdlib -fno-stack-protector -fPIC -O2 -I. -Wall -Ithird_party/chocolate-doom/src -Ithird_party/chocolate-doom
+        CFLAGS = -nostdlib -fno-stack-protector -fPIC -O2 -I. -Wall -Ithird_party/chocolate-doom/src -Ithird_party/chocolate-doom -I/usr/include/SDL2 -DHAVE_CONFIG_H
         LDFLAGS = -T linker.ld
 
         # Our source files (in src/)
