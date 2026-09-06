@@ -1,4 +1,4 @@
-name: Build Example C0re
+name: Build DoomC0re
 
 on:
   workflow_dispatch:
@@ -24,6 +24,7 @@ jobs:
           automake \
           libtool \
           pkg-config \
+          libsdl2-dev \
           gcc-x86-64-linux-gnu \
           binutils-x86-64-linux-gnu
         # Create x86_64-elf-* symlinks
@@ -35,9 +36,10 @@ jobs:
       run: |
         git clone https://github.com/chocolate-doom/chocolate-doom.git third_party/chocolate-doom
         cd third_party/chocolate-doom
+        # Run autogen and configure, but skip SDL2 since we're replacing the system interface
         ./autogen.sh
-        ./configure --prefix=/usr --disable-shared --enable-static
-        # Generate config.h (this is what was missing)
+        ./configure --prefix=/usr --disable-shared --enable-static --without-sdl2 --without-sdl-mixer
+        # Generate config.h
         make config.h
         # Remove other game engines to reduce build time
         rm -rf src/heretic src/hexen src/strife
