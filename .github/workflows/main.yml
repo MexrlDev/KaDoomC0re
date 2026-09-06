@@ -796,6 +796,7 @@ jobs:
         # Chocolate Doom sources
         DOOM_SRC_DIR = third_party/chocolate-doom/src
         DOOM_SRC_FILES = $(wildcard $(DOOM_SRC_DIR)/*.c)
+
         # Exclude original system interface files and unnecessary modules
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_system.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_video.c, $(DOOM_SRC_FILES))
@@ -806,8 +807,16 @@ jobs:
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_joystick.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_timer.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_main.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_oplmusic.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_flmusic.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_musicpack.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_cdmus.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/gusconf.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_midipipe.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_midifile.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/net_*.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/txt_*.c, $(DOOM_SRC_FILES))  # textscreen library
+
         DOOM_OBJS = $(DOOM_SRC_FILES:$(DOOM_SRC_DIR)/%.c=doom_%.o)
 
         all: doom.bin
