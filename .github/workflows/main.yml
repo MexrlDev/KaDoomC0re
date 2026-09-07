@@ -193,7 +193,7 @@ jobs:
         void perror(const char *s) {}
         EOF
 
-    - name: Write doom_stubs.c (minimal stubs)
+    - name: Write doom_stubs.c (now includes V_BeginRead)
       run: |
         cat > src/doom_stubs.c << 'EOF'
         #include <stddef.h>
@@ -212,16 +212,18 @@ jobs:
             return 0;
         }
 
-        // V_BeginRead is now provided by i_ps.c, so not here.
+        void V_BeginRead(void) {
+            // no-op
+        }
+
         int M_CheckParm(const char *parm) {
             return 0;
         }
 
-        // DeHackEd variable needed by deh_str.c
         int deh_allow_long_strings = 0;
         EOF
 
-    - name: Write updated Makefile (explicit include list)
+    - name: Write updated Makefile (keep all .c, exclude only troublemakers)
       run: |
         cat > Makefile << 'EOF'
         CC = x86_64-elf-gcc
@@ -234,80 +236,56 @@ jobs:
         SRC_FILES = src/hijack.c src/audio.c src/input.c src/ui.c src/ftp_server.c src/i_ps.c src/doom_engine.c src/doom_main.c src/stub_libc.c src/doom_stubs.c
         OBJS = $(SRC_FILES:src/%.c=%.o)
 
-        # Explicit list of essential Chocolate Doom source files
+        # Chocolate Doom sources – include everything, then filter out known troublemakers
         DOOM_SRC_DIR = third_party/chocolate-doom/src
+        DOOM_SRC_FILES = $(wildcard $(DOOM_SRC_DIR)/*.c)
 
-        # Core engine files – everything except system/SDL/network/dehacked I/O
-        DOOM_ESSENTIAL = \
-            $(DOOM_SRC_DIR)/aes_prng.c \
-            $(DOOM_SRC_DIR)/am_map.c \
-            $(DOOM_SRC_DIR)/d_event.c \
-            $(DOOM_SRC_DIR)/d_main.c \
-            $(DOOM_SRC_DIR)/d_mode.c \
-            $(DOOM_SRC_DIR)/deh_str.c \
-            $(DOOM_SRC_DIR)/f_finale.c \
-            $(DOOM_SRC_DIR)/f_wipe.c \
-            $(DOOM_SRC_DIR)/g_game.c \
-            $(DOOM_SRC_DIR)/hu_lib.c \
-            $(DOOM_SRC_DIR)/hu_stuff.c \
-            $(DOOM_SRC_DIR)/m_bbox.c \
-            $(DOOM_SRC_DIR)/m_cheat.c \
-            $(DOOM_SRC_DIR)/m_fixed.c \
-            $(DOOM_SRC_DIR)/m_misc.c \
-            $(DOOM_SRC_DIR)/p_ceilng.c \
-            $(DOOM_SRC_DIR)/p_doors.c \
-            $(DOOM_SRC_DIR)/p_enemy.c \
-            $(DOOM_SRC_DIR)/p_floor.c \
-            $(DOOM_SRC_DIR)/p_inter.c \
-            $(DOOM_SRC_DIR)/p_lights.c \
-            $(DOOM_SRC_DIR)/p_map.c \
-            $(DOOM_SRC_DIR)/p_maputl.c \
-            $(DOOM_SRC_DIR)/p_mobj.c \
-            $(DOOM_SRC_DIR)/p_plats.c \
-            $(DOOM_SRC_DIR)/p_pspr.c \
-            $(DOOM_SRC_DIR)/p_saveg.c \
-            $(DOOM_SRC_DIR)/p_setup.c \
-            $(DOOM_SRC_DIR)/p_sight.c \
-            $(DOOM_SRC_DIR)/p_spec.c \
-            $(DOOM_SRC_DIR)/p_switch.c \
-            $(DOOM_SRC_DIR)/p_telept.c \
-            $(DOOM_SRC_DIR)/p_tick.c \
-            $(DOOM_SRC_DIR)/p_user.c \
-            $(DOOM_SRC_DIR)/r_bsp.c \
-            $(DOOM_SRC_DIR)/r_data.c \
-            $(DOOM_SRC_DIR)/r_draw.c \
-            $(DOOM_SRC_DIR)/r_main.c \
-            $(DOOM_SRC_DIR)/r_plane.c \
-            $(DOOM_SRC_DIR)/r_segs.c \
-            $(DOOM_SRC_DIR)/r_sky.c \
-            $(DOOM_SRC_DIR)/r_things.c \
-            $(DOOM_SRC_DIR)/s_sound.c \
-            $(DOOM_SRC_DIR)/sha1.c \
-            $(DOOM_SRC_DIR)/st_lib.c \
-            $(DOOM_SRC_DIR)/st_stuff.c \
-            $(DOOM_SRC_DIR)/tables.c \
-            $(DOOM_SRC_DIR)/v_video.c \
-            $(DOOM_SRC_DIR)/w_file.c \
-            $(DOOM_SRC_DIR)/w_file_posix.c \
-            $(DOOM_SRC_DIR)/w_file_stdc.c \
-            $(DOOM_SRC_DIR)/w_wad.c \
-            $(DOOM_SRC_DIR)/z_native.c
-
-        # Additionally, we need the files that are not in the above list but are essential:
-        # (We'll use wildcard to pick everything except what we explicitly exclude)
-        # But to be safe, we'll take all *.c and filter out the ones we don't want.
-        # Let's use the include list above as the base, and add any missing ones later.
-        # Better: use the essential list and also add any other that might be needed,
-        # but we've already covered all p_*, r_*, g_*, hu_*, st_*, am_*, f_*, s_*, etc.
-        # Some files like d_main.c, g_game.c, p_setup.c, am_map.c are already included.
-
-        # Filter to keep only the files in the essential list (plus any others we add)
-        DOOM_SRC_FILES = $(filter $(DOOM_ESSENTIAL), $(wildcard $(DOOM_SRC_DIR)/*.c))
-
-        # Also add any other file that might be required but not listed (e.g., d_ticcmd.c? Not present in Chocolate Doom)
-        # We'll also add i_ps.c? No, that's ours.
-        # For safety, we'll add any file that is not excluded but is in the essential list.
-        # But the essential list covers everything we need.
+        # Exclude files that depend on missing libraries or are unnecessary
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_dedicated.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_loop.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_iwad.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/deh_io.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/deh_main.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/deh_mapping.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/deh_text.c, $(DOOM_SRC_FILES))  # depends on DEH_GetChar, etc.
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/m_config.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/m_controls.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/m_argv.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_glob.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/memio.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/mus2mid.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/midi%.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_main.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_merge.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_checksum.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/z_zone.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_sound.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_video.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_input.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_system.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_main.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/p_rejectpad.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_endoom.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/txt_%.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/net_%.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_sdlmusic.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_sdlsound.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_oplmusic.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_flmusic.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_musicpack.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_cdmus.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/gusconf.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_midipipe.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_midifile.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_joystick.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_pcsound.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_videohr.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_winmusic.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_file_win32.c, $(DOOM_SRC_FILES))
+        # i_timer is excluded because we provide our own in i_ps.c (so no duplicate)
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_timer.c, $(DOOM_SRC_FILES))
+        # v_diskicon is excluded because it duplicates V_BeginRead (we have it in doom_stubs.c)
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/v_diskicon.c, $(DOOM_SRC_FILES))
 
         DOOM_OBJS = $(DOOM_SRC_FILES:$(DOOM_SRC_DIR)/%.c=doom_%.o)
 
