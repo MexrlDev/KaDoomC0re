@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository (includes src/, Makefile, etc.)
+    - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Install build tools
@@ -46,7 +46,7 @@ jobs:
         make config.h
         rm -rf src/heretic src/hexen src/strife
 
-    - name: Write updated stub_libc.c (add stdout)
+    - name: Write updated stub_libc.c (add stderr)
       run: |
         cat > src/stub_libc.c << 'EOF'
         #include <stddef.h>
@@ -57,8 +57,9 @@ jobs:
         typedef long ssize_t;
         typedef long off_t;
 
-        // Provide stdout (used by deh_str.c)
+        // Provide stdout and stderr (used by deh_str.c and w_file_posix.c)
         FILE *stdout = NULL;
+        FILE *stderr = NULL;
 
         // ----- Memory / string functions -----
         void *memcpy(void *dest, const void *src, size_t n) {
@@ -197,47 +198,7 @@ jobs:
         void perror(const char *s) {}
         EOF
 
-    - name: Write updated doom_stubs.c (only truly missing functions)
-      run: |
-        cat > src/doom_stubs.c << 'EOF'
-        // Stubs for missing Chocolate Doom functions and variables
-        #include <stddef.h>
-
-        // Variables that are not defined elsewhere
-        int usemouse = 0;
-        int mouse_threshold = 0;
-        int mouse_acceleration = 0;
-        void *I_VideoBuffer = NULL;      // pointer to video buffer (provided by our I_UpdateScreen)
-
-        // Functions not defined elsewhere
-        void *I_Realloc(void *ptr, size_t size) {
-            // Use realloc from stub_libc
-            extern void *realloc(void *, size_t);
-            return realloc(ptr, size);
-        }
-
-        int I_GetPaletteIndex(int color) {
-            return 0;
-        }
-
-        void V_BeginRead(void) {
-            // no-op
-        }
-
-        int M_CheckParm(const char *parm) {
-            return 0;
-        }
-
-        // W_OpenFile and friends are defined in w_file.c and w_file_*.c
-        // posix_wad_file is provided by w_file_posix.c
-        // We must include w_file_posix.c in the build.
-
-        // I_ShutdownGraphics is already in i_ps.c, so not here.
-        // M_snprintf is defined in m_misc.c, so not here.
-        // DEH_String is defined in deh_str.c, so not here.
-        EOF
-
-    - name: Write updated Makefile (include w_file_posix.c)
+    - name: Write simplified Makefile
       run: |
         cat > Makefile << 'EOF'
         CC = x86_64-elf-gcc
@@ -246,70 +207,69 @@ jobs:
         CFLAGS = -nostdlib -fno-stack-protector -fPIC -O2 -I. -Wall -Ithird_party/chocolate-doom/src -Ithird_party/chocolate-doom -I/usr/include/SDL2 -DHAVE_CONFIG_H
         LDFLAGS = -T linker.ld
 
-        # Our source files (in src/)
+        # Our source files
         SRC_FILES = src/hijack.c src/audio.c src/input.c src/ui.c src/ftp_server.c src/i_ps.c src/doom_engine.c src/doom_main.c src/stub_libc.c src/doom_stubs.c
         OBJS = $(SRC_FILES:src/%.c=%.o)
 
-        # Chocolate Doom sources – keep core engine + necessary modules
+        # Chocolate Doom sources – list essential files explicitly
         DOOM_SRC_DIR = third_party/chocolate-doom/src
-        DOOM_SRC_FILES = $(wildcard $(DOOM_SRC_DIR)/*.c)
+        DOOM_ESSENTIAL = \
+            $(DOOM_SRC_DIR)/aes_prng.c \
+            $(DOOM_SRC_DIR)/am_map.c \
+            $(DOOM_SRC_DIR)/d_event.c \
+            $(DOOM_SRC_DIR)/d_main.c \
+            $(DOOM_SRC_DIR)/d_mode.c \
+            $(DOOM_SRC_DIR)/deh_str.c \
+            $(DOOM_SRC_DIR)/f_finale.c \
+            $(DOOM_SRC_DIR)/f_wipe.c \
+            $(DOOM_SRC_DIR)/g_game.c \
+            $(DOOM_SRC_DIR)/hu_lib.c \
+            $(DOOM_SRC_DIR)/hu_stuff.c \
+            $(DOOM_SRC_DIR)/m_bbox.c \
+            $(DOOM_SRC_DIR)/m_cheat.c \
+            $(DOOM_SRC_DIR)/m_fixed.c \
+            $(DOOM_SRC_DIR)/m_misc.c \
+            $(DOOM_SRC_DIR)/p_ceilng.c \
+            $(DOOM_SRC_DIR)/p_doors.c \
+            $(DOOM_SRC_DIR)/p_enemy.c \
+            $(DOOM_SRC_DIR)/p_floor.c \
+            $(DOOM_SRC_DIR)/p_inter.c \
+            $(DOOM_SRC_DIR)/p_lights.c \
+            $(DOOM_SRC_DIR)/p_map.c \
+            $(DOOM_SRC_DIR)/p_maputl.c \
+            $(DOOM_SRC_DIR)/p_mobj.c \
+            $(DOOM_SRC_DIR)/p_plats.c \
+            $(DOOM_SRC_DIR)/p_pspr.c \
+            $(DOOM_SRC_DIR)/p_saveg.c \
+            $(DOOM_SRC_DIR)/p_setup.c \
+            $(DOOM_SRC_DIR)/p_sight.c \
+            $(DOOM_SRC_DIR)/p_spec.c \
+            $(DOOM_SRC_DIR)/p_switch.c \
+            $(DOOM_SRC_DIR)/p_telept.c \
+            $(DOOM_SRC_DIR)/p_tick.c \
+            $(DOOM_SRC_DIR)/p_user.c \
+            $(DOOM_SRC_DIR)/r_bsp.c \
+            $(DOOM_SRC_DIR)/r_data.c \
+            $(DOOM_SRC_DIR)/r_draw.c \
+            $(DOOM_SRC_DIR)/r_main.c \
+            $(DOOM_SRC_DIR)/r_plane.c \
+            $(DOOM_SRC_DIR)/r_segs.c \
+            $(DOOM_SRC_DIR)/r_sky.c \
+            $(DOOM_SRC_DIR)/r_things.c \
+            $(DOOM_SRC_DIR)/sha1.c \
+            $(DOOM_SRC_DIR)/s_sound.c \
+            $(DOOM_SRC_DIR)/st_lib.c \
+            $(DOOM_SRC_DIR)/st_stuff.c \
+            $(DOOM_SRC_DIR)/tables.c \
+            $(DOOM_SRC_DIR)/v_video.c \
+            $(DOOM_SRC_DIR)/w_file.c \
+            $(DOOM_SRC_DIR)/w_file_posix.c \
+            $(DOOM_SRC_DIR)/w_file_stdc.c \
+            $(DOOM_SRC_DIR)/w_wad.c \
+            $(DOOM_SRC_DIR)/z_native.c
 
-        # Exclude everything that uses stdio, file I/O, networking, config, DeHackEd, etc.
-        # But we need some of them: m_misc.c, deh_str.c, w_file.c, w_file_stdc.c, w_file_posix.c, d_main.c
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_dedicated.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_loop.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_iwad.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/deh_io.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/deh_main.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/deh_mapping.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/m_config.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/m_controls.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/m_argv.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_glob.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/memio.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/mus2mid.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/midi*.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_main.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_merge.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_checksum.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/z_zone.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_sound.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_video.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_input.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_system.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_main.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/p_rejectpad.c, $(DOOM_SRC_FILES))
-
-        # Keep essential engine files: p_*, r_*, g_*, hu_*, st_*, am_*, f_*, s_*
-        # Also keep d_main.c, m_misc.c, deh_str.c, w_file.c, w_file_stdc.c, w_file_posix.c
-        DOOM_SRC_FILES := $(filter $(DOOM_SRC_DIR)/p_%.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/r_%.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/g_%.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/hu_%.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/st_%.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/am_%.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/f_%.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/s_%.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/m_fixed.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/m_bbox.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/m_cheat.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/tables.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/sha1.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/z_native.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/w_wad.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/v_video.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/d_event.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/d_mode.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/aes_prng.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/d_main.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/g_game.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/p_setup.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/m_misc.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/deh_str.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/w_file.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/w_file_stdc.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/w_file_posix.c, $(DOOM_SRC_FILES))
-
+        # Use wildcard to filter out any missing files
+        DOOM_SRC_FILES = $(wildcard $(DOOM_ESSENTIAL))
         DOOM_OBJS = $(DOOM_SRC_FILES:$(DOOM_SRC_DIR)/%.c=doom_%.o)
 
         all: doom.bin
@@ -332,6 +292,37 @@ jobs:
         .PHONY: all clean
         EOF
 
+    - name: Write doom_stubs.c (minimal)
+      run: |
+        cat > src/doom_stubs.c << 'EOF'
+        #include <stddef.h>
+
+        // Variables used by the engine
+        int usemouse = 0;
+        int mouse_threshold = 0;
+        int mouse_acceleration = 0;
+        void *I_VideoBuffer = NULL;
+
+        // Stubs for missing functions
+        void *I_Realloc(void *ptr, size_t size) {
+            extern void *realloc(void *, size_t);
+            return realloc(ptr, size);
+        }
+
+        int I_GetPaletteIndex(int color) {
+            return 0;
+        }
+
+        void V_BeginRead(void) {
+        }
+
+        int M_CheckParm(const char *parm) {
+            return 0;
+        }
+
+        // I_ShutdownGraphics, M_snprintf, DEH_String are defined elsewhere
+        EOF
+
     - name: Build DoomC0re
       run: |
         echo "Building DoomC0re..."
@@ -344,7 +335,7 @@ jobs:
         file doom.elf doom.bin || true
         wc -c doom.bin
 
-    - name: Convert doom.bin to Lua hex (optional)
+    - name: Convert doom.bin to Lua hex
       run: |
         python3 -c "
         with open('doom.bin', 'rb') as f:
