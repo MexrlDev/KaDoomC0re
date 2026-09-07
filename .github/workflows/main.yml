@@ -48,8 +48,7 @@ jobs:
 
     - name: Write all source files (platform layer + stubs)
       run: |
-        # -----------------------------------------------------------------
-        # core.h – unchanged
+        # ===== core.h (unchanged) =====
         cat > src/core.h << 'EOF'
         /* core.h - Common types and helpers */
         #ifndef CORE_H
@@ -111,8 +110,7 @@ jobs:
         #endif
         EOF
 
-        # -----------------------------------------------------------------
-        # hijack.h – unchanged
+        # ===== hijack.h (unchanged) =====
         cat > src/hijack.h << 'EOF'
         #ifndef HIJACK_H
         #define HIJACK_H
@@ -131,8 +129,7 @@ jobs:
         #endif
         EOF
 
-        # -----------------------------------------------------------------
-        # hijack.c – unchanged
+        # ===== hijack.c (unchanged) =====
         cat > src/hijack.c << 'EOF'
         #include "hijack.h"
         int video_hijack(struct video_ctx *v, void *G, void *D, u64 eboot_base, struct ext_args *ext) {
@@ -226,8 +223,7 @@ jobs:
         }
         EOF
 
-        # -----------------------------------------------------------------
-        # audio.h – unchanged
+        # ===== audio.h (unchanged) =====
         cat > src/audio.h << 'EOF'
         #ifndef AUDIO_H
         #define AUDIO_H
@@ -247,8 +243,7 @@ jobs:
         #endif
         EOF
 
-        # -----------------------------------------------------------------
-        # audio.c – unchanged
+        # ===== audio.c (unchanged) =====
         cat > src/audio.c << 'EOF'
         #include "audio.h"
         int audio_init(struct audio_ctx *a, void *G, void *D) {
@@ -290,8 +285,7 @@ jobs:
         }
         EOF
 
-        # -----------------------------------------------------------------
-        # input.h – unchanged
+        # ===== input.h (unchanged) =====
         cat > src/input.h << 'EOF'
         #ifndef INPUT_H
         #define INPUT_H
@@ -323,8 +317,7 @@ jobs:
         #endif
         EOF
 
-        # -----------------------------------------------------------------
-        # input.c – unchanged
+        # ===== input.c (unchanged) =====
         cat > src/input.c << 'EOF'
         #include "input.h"
         static u32 ds4_to_doom(u32 ds4_buttons) {
@@ -391,8 +384,7 @@ jobs:
         }
         EOF
 
-        # -----------------------------------------------------------------
-        # ui.h – unchanged
+        # ===== ui.h (unchanged) =====
         cat > src/ui.h << 'EOF'
         #ifndef UI_H
         #define UI_H
@@ -405,8 +397,7 @@ jobs:
         #endif
         EOF
 
-        # -----------------------------------------------------------------
-        # ui.c – unchanged (full font)
+        # ===== ui.c (unchanged) =====
         cat > src/ui.c << 'EOF'
         #include "ui.h"
         static const u8 font_data[59][8] = {
@@ -520,8 +511,7 @@ jobs:
         }
         EOF
 
-        # -----------------------------------------------------------------
-        # ftp_server.h – unchanged
+        # ===== ftp_server.h (unchanged) =====
         cat > src/ftp_server.h << 'EOF'
         #ifndef FTP_SERVER_H
         #define FTP_SERVER_H
@@ -537,8 +527,7 @@ jobs:
         #endif
         EOF
 
-        # -----------------------------------------------------------------
-        # ftp_server.c – unchanged
+        # ===== ftp_server.c (unchanged) =====
         cat > src/ftp_server.c << 'EOF'
         #include "ftp_server.h"
         #include <string.h>
@@ -559,8 +548,7 @@ jobs:
         }
         EOF
 
-        # -----------------------------------------------------------------
-        # i_ps.h – unchanged
+        # ===== i_ps.h (unchanged) =====
         cat > src/i_ps.h << 'EOF'
         #ifndef I_PS_H
         #define I_PS_H
@@ -582,8 +570,7 @@ jobs:
         #endif
         EOF
 
-        # -----------------------------------------------------------------
-        # i_ps.c – add stubs for I_Error, I_GetTime, etc.
+        # ===== i_ps.c (unchanged, includes stubs) =====
         cat > src/i_ps.c << 'EOF'
         #include "i_ps.h"
         #include "ui.h"
@@ -597,38 +584,19 @@ jobs:
         static int screen_w = 320, screen_h = 200;
 
         // ----- stubs for functions called by the engine -----
-        void I_Error(const char *error, ...) {
-            // In a real payload, you could display a notification
-            while (1) {}
-        }
-        void I_GetTime(void) {
-            // Return current tic count; we'll just return a dummy value
-            // The engine will call this frequently.
-        }
-        unsigned int I_GetTimeMS(void) {
-            // Return milliseconds; we can use a counter if needed.
-            static unsigned int ms = 0;
-            return ms++;
-        }
+        void I_Error(const char *error, ...) { while (1) {} }
+        void I_GetTime(void) { /* dummy */ }
+        unsigned int I_GetTimeMS(void) { static unsigned int ms = 0; return ms++; }
         void I_Sleep(unsigned int ms) {
-            // Use the kernel usleep if available
             if (doom_video && doom_video->G) {
                 void *usleep = SYM(doom_video->G, doom_video->D, LIBKERNEL_HANDLE, "sceKernelUsleep");
                 if (usleep) NC(doom_video->G, usleep, ms * 1000ULL, 0,0,0,0,0);
             }
         }
-        void I_AtExit(void (*func)(void)) {
-            // Ignore - we handle cleanup manually
-        }
-        void I_StartTic(void) {
-            // No-op
-        }
-        void I_ShutdownGraphics(void) {
-            // No-op
-        }
-        void I_GetEvent(void) {
-            // Already implemented
-        }
+        void I_AtExit(void (*func)(void)) {}
+        void I_StartTic(void) {}
+        void I_ShutdownGraphics(void) {}
+        void I_GetEvent(void) { input_poll(doom_input); }
         // ----- end of stubs -----
 
         void I_Init(void *G, void *D, struct video_ctx *video, struct audio_ctx *audio, struct input_ctx *input) {
@@ -673,8 +641,7 @@ jobs:
         }
         EOF
 
-        # -----------------------------------------------------------------
-        # doom_engine.h – unchanged
+        # ===== doom_engine.h (unchanged) =====
         cat > src/doom_engine.h << 'EOF'
         #ifndef DOOM_ENGINE_H
         #define DOOM_ENGINE_H
@@ -697,8 +664,7 @@ jobs:
         #endif
         EOF
 
-        # -----------------------------------------------------------------
-        # doom_engine.c – unchanged
+        # ===== doom_engine.c (unchanged) =====
         cat > src/doom_engine.c << 'EOF'
         #include "doom_engine.h"
         #include "i_ps.h"
@@ -718,8 +684,7 @@ jobs:
         }
         EOF
 
-        # -----------------------------------------------------------------
-        # doom_main.c – unchanged
+        # ===== doom_main.c (unchanged) =====
         cat > src/doom_main.c << 'EOF'
         #include "core.h"
         #include "hijack.h"
@@ -788,12 +753,17 @@ jobs:
         }
         EOF
 
-        # -----------------------------------------------------------------
-        # stub_libc.c – provide minimal standard C functions
+        # ===== stub_libc.c (CORRECTED) =====
         cat > src/stub_libc.c << 'EOF'
         #include <stddef.h>
         #include <stdarg.h>
-        // Basic memory functions
+        #include <stdio.h>   // for EOF
+
+        // Define missing types
+        typedef long ssize_t;
+        typedef long off_t;
+
+        // ----- Memory / string functions -----
         void *memcpy(void *dest, const void *src, size_t n) {
             unsigned char *d = dest;
             const unsigned char *s = src;
@@ -872,12 +842,9 @@ jobs:
             if (!n) return 0;
             return (*a | 0x20) - (*b | 0x20);
         }
-        char *strdup(const char *s) {
-            // We don't have a real malloc; this will cause trouble if used.
-            // Provide a dummy that returns NULL.
-            return NULL;
-        }
-        // stdio stubs – all no-ops or dummy returns
+        char *strdup(const char *s) { return NULL; }
+
+        // ----- stdio stubs (no-ops) -----
         int printf(const char *fmt, ...) { return 0; }
         int fprintf(void *stream, const char *fmt, ...) { return 0; }
         int vfprintf(void *stream, const char *fmt, va_list ap) { return 0; }
@@ -916,15 +883,14 @@ jobs:
         int __vfprintf_chk(void *stream, int flag, const char *format, va_list ap) { return 0; }
         int __vsnprintf_chk(char *str, size_t size, int flag, size_t slen, const char *format, va_list ap) { return 0; }
         size_t __fread_chk(void *ptr, size_t size, size_t nmemb, void *stream, size_t total) { return 0; }
-        size_t __memset_chk(void *dest, int c, size_t len, size_t destlen) { return 0; }
+        void *__memset_chk(void *dest, int c, size_t len, size_t destlen) { return memset(dest, c, len); }
         char *__strncpy_chk(char *dest, const char *src, size_t n, size_t destlen) { return strncpy(dest, src, n); }
         unsigned short *__ctype_b_loc(void) { static unsigned short ctype[256]; return ctype; }
         unsigned short *__ctype_toupper_loc(void) { static unsigned short toupper[256]; return toupper; }
         unsigned short *__ctype_tolower_loc(void) { static unsigned short tolower[256]; return tolower; }
-        int __assert_fail(const char *assertion, const char *file, unsigned int line, const char *function) {
-            while (1);
-        }
-        // Additional functions that might be used
+        int __assert_fail(const char *assertion, const char *file, unsigned int line, const char *function) { while (1); }
+
+        // ----- POSIX-like stubs -----
         int open(const char *path, int flags, ...) { return -1; }
         int close(int fd) { return 0; }
         ssize_t read(int fd, void *buf, size_t count) { return -1; }
@@ -934,9 +900,6 @@ jobs:
         off_t lseek(int fd, off_t offset, int whence) { return 0; }
         char *strerror(int errnum) { return "Unknown error"; }
         void perror(const char *s) {}
-        void *calloc(size_t nmemb, size_t size) { return NULL; }
-        void *realloc(void *ptr, size_t size) { return NULL; }
-        // Some functions are already defined in other files; we avoid duplicates.
         EOF
 
     - name: Write linker.ld
@@ -1013,7 +976,7 @@ jobs:
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_main.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_merge.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_checksum.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/z_zone.c, $(DOOM_SRC_FILES))   # duplicate of z_native
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/z_zone.c, $(DOOM_SRC_FILES))
 
         # Also exclude the standard SDL-based sound/video/input (we provide our own)
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_sound.c, $(DOOM_SRC_FILES))
@@ -1023,7 +986,6 @@ jobs:
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_main.c, $(DOOM_SRC_FILES))
 
         # Keep only essential engine files: p_*, r_*, g_*, hu_*, st_*, am_*, f_*, s_*, etc.
-        # Also keep w_wad.c (WAD loading), v_video.c (rendering), tables.c, sha1.c, m_fixed, m_bbox, m_cheat, z_native, etc.
         DOOM_SRC_FILES := $(filter $(DOOM_SRC_DIR)/p_%.c, $(DOOM_SRC_FILES)) \
                           $(filter $(DOOM_SRC_DIR)/r_%.c, $(DOOM_SRC_FILES)) \
                           $(filter $(DOOM_SRC_DIR)/g_%.c, $(DOOM_SRC_FILES)) \
@@ -1042,9 +1004,11 @@ jobs:
                           $(filter $(DOOM_SRC_DIR)/v_video.c, $(DOOM_SRC_FILES)) \
                           $(filter $(DOOM_SRC_DIR)/d_event.c, $(DOOM_SRC_FILES)) \
                           $(filter $(DOOM_SRC_DIR)/d_mode.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/aes_prng.c, $(DOOM_SRC_FILES))
+                          $(filter $(DOOM_SRC_DIR)/aes_prng.c, $(DOOM_SRC_FILES)) \
+                          $(filter $(DOOM_SRC_DIR)/d_main.c, $(DOOM_SRC_FILES)) \
+                          $(filter $(DOOM_SRC_DIR)/g_game.c, $(DOOM_SRC_FILES)) \
+                          $(filter $(DOOM_SRC_DIR)/p_setup.c, $(DOOM_SRC_FILES))
 
-        # Convert to object file list
         DOOM_OBJS = $(DOOM_SRC_FILES:$(DOOM_SRC_DIR)/%.c=doom_%.o)
 
         all: doom.bin
