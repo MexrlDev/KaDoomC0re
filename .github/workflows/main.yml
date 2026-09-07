@@ -46,7 +46,198 @@ jobs:
         make config.h
         rm -rf src/heretic src/hexen src/strife
 
-    - name: Write updated Makefile
+    - name: Write updated stub_libc.c (add stdout)
+      run: |
+        cat > src/stub_libc.c << 'EOF'
+        #include <stddef.h>
+        #include <stdarg.h>
+        #include <stdio.h>
+
+        // Define missing types
+        typedef long ssize_t;
+        typedef long off_t;
+
+        // Provide stdout (used by deh_str.c)
+        FILE *stdout = NULL;
+
+        // ----- Memory / string functions -----
+        void *memcpy(void *dest, const void *src, size_t n) {
+            unsigned char *d = dest;
+            const unsigned char *s = src;
+            while (n--) *d++ = *s++;
+            return dest;
+        }
+        void *memset(void *s, int c, size_t n) {
+            unsigned char *p = s;
+            while (n--) *p++ = (unsigned char)c;
+            return s;
+        }
+        void *memmove(void *dest, const void *src, size_t n) {
+            unsigned char *d = dest;
+            const unsigned char *s = src;
+            if (d < s) {
+                while (n--) *d++ = *s++;
+            } else {
+                d += n; s += n;
+                while (n--) *--d = *--s;
+            }
+            return dest;
+        }
+        size_t strlen(const char *s) {
+            size_t n = 0;
+            while (*s++) n++;
+            return n;
+        }
+        int strcmp(const char *a, const char *b) {
+            while (*a && *a == *b) { a++; b++; }
+            return *(unsigned char*)a - *(unsigned char*)b;
+        }
+        int strncmp(const char *a, const char *b, size_t n) {
+            while (n-- && *a && *a == *b) { a++; b++; }
+            if (!n) return 0;
+            return *(unsigned char*)a - *(unsigned char*)b;
+        }
+        char *strcpy(char *dest, const char *src) {
+            char *d = dest;
+            while ((*d++ = *src++));
+            return dest;
+        }
+        char *strncpy(char *dest, const char *src, size_t n) {
+            char *d = dest;
+            while (n-- && (*d++ = *src++));
+            return dest;
+        }
+        char *strchr(const char *s, int c) {
+            while (*s) {
+                if (*s == c) return (char*)s;
+                s++;
+            }
+            return NULL;
+        }
+        char *strrchr(const char *s, int c) {
+            const char *last = NULL;
+            while (*s) {
+                if (*s == c) last = s;
+                s++;
+            }
+            return (char*)last;
+        }
+        char *strstr(const char *haystack, const char *needle) {
+            for (; *haystack; haystack++) {
+                const char *h = haystack, *n = needle;
+                while (*h && *n && *h == *n) { h++; n++; }
+                if (!*n) return (char*)haystack;
+            }
+            return NULL;
+        }
+        int strcasecmp(const char *a, const char *b) {
+            while (*a && *b && (*a | 0x20) == (*b | 0x20)) { a++; b++; }
+            return (*a | 0x20) - (*b | 0x20);
+        }
+        int strncasecmp(const char *a, const char *b, size_t n) {
+            while (n-- && *a && *b && (*a | 0x20) == (*b | 0x20)) { a++; b++; }
+            if (!n) return 0;
+            return (*a | 0x20) - (*b | 0x20);
+        }
+        char *strdup(const char *s) { return NULL; }
+
+        // ----- stdio stubs (no-ops) -----
+        int printf(const char *fmt, ...) { return 0; }
+        int puts(const char *s) { return 0; }
+        void exit(int status) { while (1); }
+        void *malloc(size_t size) { return NULL; }
+        void free(void *ptr) {}
+        void *calloc(size_t nmemb, size_t size) { return NULL; }
+        void *realloc(void *ptr, size_t size) { return NULL; }
+        int getchar(void) { return EOF; }
+        int feof(FILE *stream) { return 0; }
+        int fgetc(FILE *stream) { return EOF; }
+        int ungetc(int c, FILE *stream) { return c; }
+        FILE *fopen(const char *path, const char *mode) { return NULL; }
+        size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) { return 0; }
+        size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream) { return 0; }
+        int fclose(FILE *stream) { return 0; }
+        int fseek(FILE *stream, long offset, int whence) { return 0; }
+        long ftell(FILE *stream) { return 0; }
+        int remove(const char *path) { return 0; }
+        int rename(const char *old, const char *new) { return 0; }
+        int mkdir(const char *path, int mode) { return 0; }
+        void *opendir(const char *path) { return NULL; }
+        void *readdir(void *dir) { return NULL; }
+        int closedir(void *dir) { return 0; }
+        int stat(const char *path, void *buf) { return 0; }
+        char *getenv(const char *name) { return NULL; }
+        int __errno_location(void) { static int err; return err; }
+        void *localeconv(void) { static void *dummy; return dummy; }
+        double strtod(const char *nptr, char **endptr) { return 0.0; }
+        long strtol(const char *nptr, char **endptr, int base) { return 0; }
+        int __isoc99_sscanf(const char *str, const char *format, ...) { return 0; }
+        int __isoc99_fscanf(FILE *stream, const char *format, ...) { return 0; }
+        int __printf_chk(int flag, const char *format, ...) { return 0; }
+        int __fprintf_chk(FILE *stream, int flag, const char *format, ...) { return 0; }
+        int __vfprintf_chk(FILE *stream, int flag, const char *format, va_list ap) { return 0; }
+        int __vsnprintf_chk(char *str, size_t size, int flag, size_t slen, const char *format, va_list ap) { return 0; }
+        size_t __fread_chk(void *ptr, size_t ptrlen, size_t size, size_t nmemb, FILE *stream) { return 0; }
+        void *__memset_chk(void *dest, int c, size_t len, size_t destlen) { return memset(dest, c, len); }
+        char *__strncpy_chk(char *dest, const char *src, size_t n, size_t destlen) { return strncpy(dest, src, n); }
+        unsigned short *__ctype_b_loc(void) { static unsigned short ctype[256]; return ctype; }
+        unsigned short *__ctype_toupper_loc(void) { static unsigned short toupper[256]; return toupper; }
+        unsigned short *__ctype_tolower_loc(void) { static unsigned short tolower[256]; return tolower; }
+        int __assert_fail(const char *assertion, const char *file, unsigned int line, const char *function) { while (1); }
+
+        // ----- POSIX-like stubs -----
+        int open(const char *path, int flags, ...) { return -1; }
+        int close(int fd) { return 0; }
+        ssize_t read(int fd, void *buf, size_t count) { return -1; }
+        ssize_t write(int fd, const void *buf, size_t count) { return count; }
+        void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset) { return NULL; }
+        int munmap(void *addr, size_t len) { return 0; }
+        off_t lseek(int fd, off_t offset, int whence) { return 0; }
+        char *strerror(int errnum) { return "Unknown error"; }
+        void perror(const char *s) {}
+        EOF
+
+    - name: Write updated doom_stubs.c (only truly missing functions)
+      run: |
+        cat > src/doom_stubs.c << 'EOF'
+        // Stubs for missing Chocolate Doom functions and variables
+        #include <stddef.h>
+
+        // Variables that are not defined elsewhere
+        int usemouse = 0;
+        int mouse_threshold = 0;
+        int mouse_acceleration = 0;
+        void *I_VideoBuffer = NULL;      // pointer to video buffer (provided by our I_UpdateScreen)
+
+        // Functions not defined elsewhere
+        void *I_Realloc(void *ptr, size_t size) {
+            // Use realloc from stub_libc
+            extern void *realloc(void *, size_t);
+            return realloc(ptr, size);
+        }
+
+        int I_GetPaletteIndex(int color) {
+            return 0;
+        }
+
+        void V_BeginRead(void) {
+            // no-op
+        }
+
+        int M_CheckParm(const char *parm) {
+            return 0;
+        }
+
+        // W_OpenFile and friends are defined in w_file.c and w_file_*.c
+        // posix_wad_file is provided by w_file_posix.c
+        // We must include w_file_posix.c in the build.
+
+        // I_ShutdownGraphics is already in i_ps.c, so not here.
+        // M_snprintf is defined in m_misc.c, so not here.
+        // DEH_String is defined in deh_str.c, so not here.
+        EOF
+
+    - name: Write updated Makefile (include w_file_posix.c)
       run: |
         cat > Makefile << 'EOF'
         CC = x86_64-elf-gcc
@@ -64,7 +255,7 @@ jobs:
         DOOM_SRC_FILES = $(wildcard $(DOOM_SRC_DIR)/*.c)
 
         # Exclude everything that uses stdio, file I/O, networking, config, DeHackEd, etc.
-        # But we do need some of them: m_misc.c, deh_str.c, w_file.c, w_file_stdc.c, d_main.c
+        # But we need some of them: m_misc.c, deh_str.c, w_file.c, w_file_stdc.c, w_file_posix.c, d_main.c
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_dedicated.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_loop.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_iwad.c, $(DOOM_SRC_FILES))
@@ -87,10 +278,10 @@ jobs:
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_input.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_system.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_main.c, $(DOOM_SRC_FILES))
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/p_rejectpad.c, $(DOOM_SRC_FILES))  # not needed
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/p_rejectpad.c, $(DOOM_SRC_FILES))
 
         # Keep essential engine files: p_*, r_*, g_*, hu_*, st_*, am_*, f_*, s_*
-        # Also keep d_main.c, m_misc.c, deh_str.c, w_file.c, w_file_stdc.c
+        # Also keep d_main.c, m_misc.c, deh_str.c, w_file.c, w_file_stdc.c, w_file_posix.c
         DOOM_SRC_FILES := $(filter $(DOOM_SRC_DIR)/p_%.c, $(DOOM_SRC_FILES)) \
                           $(filter $(DOOM_SRC_DIR)/r_%.c, $(DOOM_SRC_FILES)) \
                           $(filter $(DOOM_SRC_DIR)/g_%.c, $(DOOM_SRC_FILES)) \
@@ -116,7 +307,8 @@ jobs:
                           $(filter $(DOOM_SRC_DIR)/m_misc.c, $(DOOM_SRC_FILES)) \
                           $(filter $(DOOM_SRC_DIR)/deh_str.c, $(DOOM_SRC_FILES)) \
                           $(filter $(DOOM_SRC_DIR)/w_file.c, $(DOOM_SRC_FILES)) \
-                          $(filter $(DOOM_SRC_DIR)/w_file_stdc.c, $(DOOM_SRC_FILES))
+                          $(filter $(DOOM_SRC_DIR)/w_file_stdc.c, $(DOOM_SRC_FILES)) \
+                          $(filter $(DOOM_SRC_DIR)/w_file_posix.c, $(DOOM_SRC_FILES))
 
         DOOM_OBJS = $(DOOM_SRC_FILES:$(DOOM_SRC_DIR)/%.c=doom_%.o)
 
@@ -138,61 +330,6 @@ jobs:
         	rm -f *.o doom.elf doom.bin
 
         .PHONY: all clean
-        EOF
-
-    - name: Write doom_stubs.c for missing functions
-      run: |
-        cat > src/doom_stubs.c << 'EOF'
-        // Stubs for missing Chocolate Doom functions and variables
-        #include <stddef.h>
-
-        // Variables
-        int usemouse = 0;
-        int mouse_threshold = 0;
-        int mouse_acceleration = 0;
-        void *I_VideoBuffer = NULL;      // pointer to video buffer (provided by our I_UpdateScreen)
-
-        // Functions
-        void *I_Realloc(void *ptr, size_t size) {
-            // Use realloc from stub_libc
-            extern void *realloc(void *, size_t);
-            return realloc(ptr, size);
-        }
-
-        int I_GetPaletteIndex(int color) {
-            // Return a dummy palette index
-            return 0;
-        }
-
-        void V_BeginRead(void) {
-            // No-op
-        }
-
-        // M_CheckParm - used by some modules
-        int M_CheckParm(const char *parm) {
-            return 0;
-        }
-
-        // M_snprintf - use vsnprintf from stub_libc
-        int M_snprintf(char *buffer, size_t count, const char *format, ...) {
-            // Simple stub; in practice we might implement with vsnprintf
-            // but for linking we just return 0
-            return 0;
-        }
-
-        // DEH_String - return the same string
-        const char *DEH_String(const char *s) {
-            return s;
-        }
-
-        // W_OpenFile, W_Read, W_CloseFile - these are in w_file*.c but might be missing
-        // We'll include w_file.c and w_file_stdc.c, but if they are still missing,
-        // we can provide stubs. However, they should be provided.
-        // Just in case, define weak stubs.
-        // We'll rely on the included files.
-
-        // Additional stubs for anything else that might appear
-        void I_ShutdownGraphics(void) {}  // already in i_ps.c
         EOF
 
     - name: Build DoomC0re
