@@ -227,7 +227,7 @@ jobs:
         }
         EOF
 
-    - name: Write updated Makefile (exclude i_endoom.c)
+    - name: Write updated Makefile (exclude all problematic files)
       run: |
         cat > Makefile << 'EOF'
         CC = x86_64-elf-gcc
@@ -240,11 +240,11 @@ jobs:
         SRC_FILES = src/hijack.c src/audio.c src/input.c src/ui.c src/ftp_server.c src/i_ps.c src/doom_engine.c src/doom_main.c src/stub_libc.c src/doom_stubs.c
         OBJS = $(SRC_FILES:src/%.c=%.o)
 
-        # Chocolate Doom sources – keep almost everything, exclude known troublemakers
+        # Chocolate Doom sources
         DOOM_SRC_DIR = third_party/chocolate-doom/src
         DOOM_SRC_FILES = $(wildcard $(DOOM_SRC_DIR)/*.c)
 
-        # Exclude problematic modules
+        # Exclude everything that is not needed
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_dedicated.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_loop.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/d_iwad.c, $(DOOM_SRC_FILES))
@@ -268,12 +268,9 @@ jobs:
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_system.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_main.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/p_rejectpad.c, $(DOOM_SRC_FILES))
-        # Exclude textscreen and endoom
-        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_endoom.c, $(DOOM_SRC_FILES))   # <--- added
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_endoom.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/txt_%.c, $(DOOM_SRC_FILES))
-        # Exclude networking
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/net_%.c, $(DOOM_SRC_FILES))
-        # Exclude additional SDL music/sound files
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_sdlmusic.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_sdlsound.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_oplmusic.c, $(DOOM_SRC_FILES))
@@ -283,6 +280,13 @@ jobs:
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/gusconf.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_midipipe.c, $(DOOM_SRC_FILES))
         DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_midifile.c, $(DOOM_SRC_FILES))
+        # Additional problematic files
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_joystick.c, $(DOOM_SRC_FILES))   # <-- added
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_pcsound.c, $(DOOM_SRC_FILES))    # <-- added
+        # Also exclude i_videohr.c, i_winmusic.c, etc. if they appear
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_videohr.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/i_winmusic.c, $(DOOM_SRC_FILES))
+        DOOM_SRC_FILES := $(filter-out $(DOOM_SRC_DIR)/w_file_win32.c, $(DOOM_SRC_FILES))
 
         DOOM_OBJS = $(DOOM_SRC_FILES:$(DOOM_SRC_DIR)/%.c=doom_%.o)
 
