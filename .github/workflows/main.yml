@@ -1,54 +1,26 @@
-name: Build DoomC0re
+name: Update DoomC0re Sources
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # Trigger manually from the Actions tab
+
+permissions:
+  contents: write      # Needed to push changes
 
 jobs:
-  build:
+  update:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install build tools
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          git \
-          make \
-          python3 \
-          xxd \
-          autoconf \
-          automake \
-          libtool \
-          pkg-config \
-          libsdl2-dev \
-          libsdl2-mixer-dev \
-          libsdl2-net-dev \
-          gcc-x86-64-linux-gnu \
-          binutils-x86-64-linux-gnu
-        sudo ln -sf /usr/bin/x86_64-linux-gnu-gcc /usr/local/bin/x86_64-elf-gcc
-        sudo ln -sf /usr/bin/x86_64-linux-gnu-ld /usr/local/bin/x86_64-elf-ld
-        sudo ln -sf /usr/bin/x86_64-linux-gnu-objcopy /usr/local/bin/x86_64-elf-objcopy
-
-    - name: Clone and configure Chocolate Doom
-      run: |
-        git clone https://github.com/chocolate-doom/chocolate-doom.git third_party/chocolate-doom
-        cd third_party/chocolate-doom
-        ./autogen.sh
-        ./configure --prefix=/usr --disable-shared --enable-static
-        make config.h
-        rm -rf src/heretic src/hexen src/strife
-
-    - name: Create project source files
+    - name: Create directory structure
       run: |
         mkdir -p src tools lua
 
     - name: Write all source files (platform layer + stubs)
       run: |
-        # ===== core.h (unchanged) =====
+        # ===== core.h =====
         cat > src/core.h << 'EOF'
         /* core.h - Common types and helpers */
         #ifndef CORE_H
@@ -110,7 +82,7 @@ jobs:
         #endif
         EOF
 
-        # ===== hijack.h (unchanged) =====
+        # ===== hijack.h =====
         cat > src/hijack.h << 'EOF'
         #ifndef HIJACK_H
         #define HIJACK_H
@@ -129,7 +101,7 @@ jobs:
         #endif
         EOF
 
-        # ===== hijack.c (unchanged) =====
+        # ===== hijack.c =====
         cat > src/hijack.c << 'EOF'
         #include "hijack.h"
         int video_hijack(struct video_ctx *v, void *G, void *D, u64 eboot_base, struct ext_args *ext) {
@@ -223,7 +195,7 @@ jobs:
         }
         EOF
 
-        # ===== audio.h (unchanged) =====
+        # ===== audio.h =====
         cat > src/audio.h << 'EOF'
         #ifndef AUDIO_H
         #define AUDIO_H
@@ -243,7 +215,7 @@ jobs:
         #endif
         EOF
 
-        # ===== audio.c (unchanged) =====
+        # ===== audio.c =====
         cat > src/audio.c << 'EOF'
         #include "audio.h"
         int audio_init(struct audio_ctx *a, void *G, void *D) {
@@ -285,7 +257,7 @@ jobs:
         }
         EOF
 
-        # ===== input.h (unchanged) =====
+        # ===== input.h =====
         cat > src/input.h << 'EOF'
         #ifndef INPUT_H
         #define INPUT_H
@@ -317,7 +289,7 @@ jobs:
         #endif
         EOF
 
-        # ===== input.c (unchanged) =====
+        # ===== input.c =====
         cat > src/input.c << 'EOF'
         #include "input.h"
         static u32 ds4_to_doom(u32 ds4_buttons) {
@@ -384,7 +356,7 @@ jobs:
         }
         EOF
 
-        # ===== ui.h (unchanged) =====
+        # ===== ui.h =====
         cat > src/ui.h << 'EOF'
         #ifndef UI_H
         #define UI_H
@@ -397,7 +369,7 @@ jobs:
         #endif
         EOF
 
-        # ===== ui.c (unchanged) =====
+        # ===== ui.c =====
         cat > src/ui.c << 'EOF'
         #include "ui.h"
         static const u8 font_data[59][8] = {
@@ -511,7 +483,7 @@ jobs:
         }
         EOF
 
-        # ===== ftp_server.h (unchanged) =====
+        # ===== ftp_server.h =====
         cat > src/ftp_server.h << 'EOF'
         #ifndef FTP_SERVER_H
         #define FTP_SERVER_H
@@ -527,7 +499,7 @@ jobs:
         #endif
         EOF
 
-        # ===== ftp_server.c (unchanged) =====
+        # ===== ftp_server.c =====
         cat > src/ftp_server.c << 'EOF'
         #include "ftp_server.h"
         #include <string.h>
@@ -548,7 +520,7 @@ jobs:
         }
         EOF
 
-        # ===== i_ps.h (unchanged) =====
+        # ===== i_ps.h =====
         cat > src/i_ps.h << 'EOF'
         #ifndef I_PS_H
         #define I_PS_H
@@ -570,7 +542,7 @@ jobs:
         #endif
         EOF
 
-        # ===== i_ps.c (unchanged, includes stubs) =====
+        # ===== i_ps.c =====
         cat > src/i_ps.c << 'EOF'
         #include "i_ps.h"
         #include "ui.h"
@@ -641,7 +613,7 @@ jobs:
         }
         EOF
 
-        # ===== doom_engine.h (unchanged) =====
+        # ===== doom_engine.h =====
         cat > src/doom_engine.h << 'EOF'
         #ifndef DOOM_ENGINE_H
         #define DOOM_ENGINE_H
@@ -664,7 +636,7 @@ jobs:
         #endif
         EOF
 
-        # ===== doom_engine.c (unchanged) =====
+        # ===== doom_engine.c =====
         cat > src/doom_engine.c << 'EOF'
         #include "doom_engine.h"
         #include "i_ps.h"
@@ -684,7 +656,7 @@ jobs:
         }
         EOF
 
-        # ===== doom_main.c (unchanged) =====
+        # ===== doom_main.c =====
         cat > src/doom_main.c << 'EOF'
         #include "core.h"
         #include "hijack.h"
@@ -753,11 +725,11 @@ jobs:
         }
         EOF
 
-        # ===== stub_libc.c (CORRECTED) =====
+        # ===== stub_libc.c =====
         cat > src/stub_libc.c << 'EOF'
         #include <stddef.h>
         #include <stdarg.h>
-        #include <stdio.h>   // for EOF
+        #include <stdio.h>
 
         // Define missing types
         typedef long ssize_t;
@@ -846,24 +818,22 @@ jobs:
 
         // ----- stdio stubs (no-ops) -----
         int printf(const char *fmt, ...) { return 0; }
-        int fprintf(void *stream, const char *fmt, ...) { return 0; }
-        int vfprintf(void *stream, const char *fmt, va_list ap) { return 0; }
         int puts(const char *s) { return 0; }
-        int fputc(int c, void *stream) { return 0; }
         void exit(int status) { while (1); }
         void *malloc(size_t size) { return NULL; }
         void free(void *ptr) {}
         void *calloc(size_t nmemb, size_t size) { return NULL; }
         void *realloc(void *ptr, size_t size) { return NULL; }
-        int feof(void *stream) { return 0; }
-        int fgetc(void *stream) { return EOF; }
-        int ungetc(int c, void *stream) { return c; }
-        void *fopen(const char *path, const char *mode) { return NULL; }
-        size_t fread(void *ptr, size_t size, size_t nmemb, void *stream) { return 0; }
-        size_t fwrite(const void *ptr, size_t size, size_t nmemb, void *stream) { return 0; }
-        int fclose(void *stream) { return 0; }
-        int fseek(void *stream, long offset, int whence) { return 0; }
-        long ftell(void *stream) { return 0; }
+        int getchar(void) { return EOF; }
+        int feof(FILE *stream) { return 0; }
+        int fgetc(FILE *stream) { return EOF; }
+        int ungetc(int c, FILE *stream) { return c; }
+        FILE *fopen(const char *path, const char *mode) { return NULL; }
+        size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) { return 0; }
+        size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream) { return 0; }
+        int fclose(FILE *stream) { return 0; }
+        int fseek(FILE *stream, long offset, int whence) { return 0; }
+        long ftell(FILE *stream) { return 0; }
         int remove(const char *path) { return 0; }
         int rename(const char *old, const char *new) { return 0; }
         int mkdir(const char *path, int mode) { return 0; }
@@ -877,12 +847,12 @@ jobs:
         double strtod(const char *nptr, char **endptr) { return 0.0; }
         long strtol(const char *nptr, char **endptr, int base) { return 0; }
         int __isoc99_sscanf(const char *str, const char *format, ...) { return 0; }
-        int __isoc99_fscanf(void *stream, const char *format, ...) { return 0; }
+        int __isoc99_fscanf(FILE *stream, const char *format, ...) { return 0; }
         int __printf_chk(int flag, const char *format, ...) { return 0; }
-        int __fprintf_chk(void *stream, int flag, const char *format, ...) { return 0; }
-        int __vfprintf_chk(void *stream, int flag, const char *format, va_list ap) { return 0; }
+        int __fprintf_chk(FILE *stream, int flag, const char *format, ...) { return 0; }
+        int __vfprintf_chk(FILE *stream, int flag, const char *format, va_list ap) { return 0; }
         int __vsnprintf_chk(char *str, size_t size, int flag, size_t slen, const char *format, va_list ap) { return 0; }
-        size_t __fread_chk(void *ptr, size_t size, size_t nmemb, void *stream, size_t total) { return 0; }
+        size_t __fread_chk(void *ptr, size_t ptrlen, size_t size, size_t nmemb, FILE *stream) { return 0; }
         void *__memset_chk(void *dest, int c, size_t len, size_t destlen) { return memset(dest, c, len); }
         char *__strncpy_chk(char *dest, const char *src, size_t n, size_t destlen) { return strncpy(dest, src, n); }
         unsigned short *__ctype_b_loc(void) { static unsigned short ctype[256]; return ctype; }
@@ -1031,36 +1001,11 @@ jobs:
         .PHONY: all clean
         EOF
 
-    - name: Build DoomC0re
-      run: |
-        echo "Building DoomC0re..."
-        make
-        echo "Build complete!"
-
-    - name: Verify outputs
-      run: |
-        ls -lah
-        file doom.elf doom.bin
-        wc -c doom.bin
-
-    - name: Convert doom.bin to Lua hex
-      run: |
-        python3 -c "
-        with open('doom.bin', 'rb') as f:
-            data = f.read()
-        hex_str = data.hex().upper()
-        lines = [hex_str[i:i+64] for i in range(0, len(hex_str), 64)]
-        lua_str = '\"' + '\"\n\"'.join(lines) + '\"'
-        with open('doom_hex.txt', 'w') as f:
-            f.write(lua_str)
-        "
-        echo "Hex string length: $(wc -c < doom_hex.txt) characters"
-
-    - name: Write lua/doom.lua
+    - name: Write lua/doom.lua (example)
       run: |
         mkdir -p lua
         cat > lua/doom.lua << 'EOF'
-        -- doom.lua – Replace the 'sc' hex string with the content of doom_hex.txt
+        -- doom.lua – Replace the 'sc' hex string with your binary payload
         require "global"
         require "rop"
         require "memory"
@@ -1084,7 +1029,7 @@ jobs:
             show_dialog("JIT exploit failed\n" .. errmsg)
             return
         end
-        -- REPLACE BELOW WITH HEX FROM doom_hex.txt
+        -- REPLACE BELOW WITH YOUR SHELLCODE HEX
         local sc = "4881ec..."
         local bin = hex_to_binary(sc)
         write_shellcode(SHELLCODE_BASE, bin)
@@ -1093,7 +1038,6 @@ jobs:
         write64(ext+0x00, 0xDEAD)
         write32(ext+0x18, log_sock)
         write32(ext+0x1C, -1)
-        -- (fill log_addr, web_fd, etc. as needed)
         func_wrap(SHELLCODE_BASE)(EBOOT_BASE, SCE_KERNEL_DLSYM, ext)
         local frames = read32(ext+0x10)
         send_notification("DoomC0re done, frames: " .. frames)
@@ -1143,18 +1087,10 @@ jobs:
         EOF
         chmod +x tools/send_lua.py
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: DoomC0re-Build
-        path: |
-          doom.bin
-          doom.elf
-          doom_hex.txt
-          lua/doom.lua
-          tools/convert_to_hex.py
-          tools/send_lua.py
-          linker.ld
-          Makefile
-          src/
-        if-no-files-found: error
+    - name: Commit and push changes
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add src/ tools/ lua/ linker.ld Makefile
+        git diff --staged --quiet || git commit -m "Add DoomC0re source scaffolding and build scripts"
+        git push
